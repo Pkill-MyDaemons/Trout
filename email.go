@@ -1,9 +1,13 @@
 package main
 
 import (
+	"bytes"
 	"crypto/tls"
+	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"net"
+	"net/http"
 	"net/smtp"
 	"strings"
 	"time"
@@ -55,9 +59,61 @@ type EmailDraft struct {
 	SentAt  *time.Time `json:"sent_at,omitempty"`
 }
 
-// sendEmail delivers a draft via SMTP.
-// Port 465 uses implicit TLS; all others use STARTTLS via smtp.SendMail.
+// sendEmail routes to Gmail API or SMTP based on the configured provider.
 func sendEmail(cfg *Config, draft *EmailDraft) error {
+	if cfg.EmailProvider == "gmail" {
+		return sendEmailGmail(cfg, draft)
+	}
+	return sendEmailSMTP(cfg, draft)
+}
+
+// sendEmailGmail sends via the Gmail REST API using an OAuth2 access token.
+func sendEmailGmail(cfg *Config, draft *EmailDraft) error {
+	token, err := getValidAccessToken(cfg)
+	if err != nil {
+		return err
+	}
+
+	from := cfg.FromAddr
+	headers := fmt.Sprintf(
+		"From: %s\r\nTo: %s\r\nSubject: %s\r\nMIME-Version: 1.0\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n",
+		from, draft.To, draft.Subject,
+	)
+	raw := base64.URLEncoding.EncodeToString([]byte(headers + draft.Body))
+
+	body, _ := json.Marshal(map[string]string{"raw": raw})
+	req, err := http.NewRequest("POST", "https://gmail.googleapis.com/gmail/v1/users/me/messages/send", bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 300 {
+		var errResp struct {
+			Error struct {
+				Message string `json:"message"`
+			} `json:"error"`
+		}
+		json.NewDecoder(resp.Body).Decode(&errResp) //nolint:errcheck
+		if errResp.Error.Message != "" {
+			return fmt.Errorf("gmail api: %s", errResp.Error.Message)
+		}
+		return fmt.Errorf("gmail api: status %d", resp.StatusCode)
+	}
+	return nil
+}
+
+// sendEmailSMTP delivers a draft via SMTP.
+// Port 465 uses implicit TLS; all others use STARTTLS via smtp.SendMail.
+func sendEmailSMTP(cfg *Config, draft *EmailDraft) error {
 	if cfg.SMTPHost == "" {
 		return fmt.Errorf("SMTP host not configured — open config with 'c'")
 	}

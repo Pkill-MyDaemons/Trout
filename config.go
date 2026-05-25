@@ -34,23 +34,31 @@ type Config struct {
 
 	// Email
 	EmailMode    EmailMode `json:"email_mode"`
-	SMTPHost     string    `json:"smtp_host"`
-	SMTPPort     int       `json:"smtp_port"`
+	EmailProvider string   `json:"email_provider"` // "smtp" | "gmail"
 	FromAddr     string    `json:"from_addr"`
-	SMTPUser     string    `json:"smtp_user"`
-	SMTPPassword string    `json:"smtp_password"`
+
+	// Gmail OAuth
+	GmailClientID     string `json:"gmail_client_id"`
+	GmailClientSecret string `json:"gmail_client_secret"`
+
+	// SMTP
+	SMTPHost     string `json:"smtp_host"`
+	SMTPPort     int    `json:"smtp_port"`
+	SMTPUser     string `json:"smtp_user"`
+	SMTPPassword string `json:"smtp_password"`
 }
 
 func defaultConfig() *Config {
 	return &Config{
-		DaemonMode:  DaemonModeNightly,
-		NightlyTime: "23:00",
-		Provider:    "claude",
-		Model:       defaultModels["claude"],
-		WorkDir:     defaultWorkspace(),
-		LocalURL:    "http://localhost:11434",
-		EmailMode:   EmailModeSummaryOnly,
-		SMTPPort:    587,
+		DaemonMode:    DaemonModeNightly,
+		NightlyTime:   "23:00",
+		Provider:      "claude",
+		Model:         defaultModels["claude"],
+		WorkDir:       defaultWorkspace(),
+		LocalURL:      "http://localhost:11434",
+		EmailMode:     EmailModeSummaryOnly,
+		EmailProvider: "smtp",
+		SMTPPort:      587,
 	}
 }
 

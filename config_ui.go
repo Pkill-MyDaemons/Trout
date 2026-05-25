@@ -22,11 +22,18 @@ const (
 	cfgLocalURL
 	// email section
 	cfgEmailMode
+	cfgEmailProvider
+	cfgFromAddr
+	// gmail fields
+	cfgGmailClientID
+	cfgGmailClientSecret
+	cfgGmailAuthBtn
+	// smtp fields
 	cfgSMTPHost
 	cfgSMTPPort
-	cfgFromAddr
 	cfgSMTPUser
 	cfgSMTPPass
+	// daemon button
 	cfgDaemonBtn
 	cfgFieldCount
 )
@@ -65,6 +72,17 @@ func (m configModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
+	case oauthDoneMsg:
+		if msg.err != nil {
+			m.statusMsg = "Auth failed: " + msg.err.Error()
+		} else {
+			m.statusMsg = "Gmail authenticated!"
+			if msg.email != "" {
+				m.cfg.FromAddr = msg.email
+				_ = saveConfig(m.cfg)
+			}
+		}
+		return m, nil
 	case tea.KeyMsg:
 		if m.editing {
 			return m.updateEdit(msg)
@@ -125,18 +143,27 @@ func (m configModel) updateNav(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case cfgEmailMode:
 			m.cfg.EmailMode = cycleEmailMode(m.cfg.EmailMode, fwd)
 			_ = saveConfig(m.cfg)
+		case cfgEmailProvider:
+			m.cfg.EmailProvider = cycleEmailProvider(m.cfg.EmailProvider, fwd)
+			_ = saveConfig(m.cfg)
+			m = m.skipHidden(1)
 		}
 	}
 	return m, nil
 }
 
-// skipHidden skips conditional fields when their parent is hidden.
+// skipHidden advances the cursor past fields that are hidden based on current config.
 func (m configModel) skipHidden(dir int) configModel {
 	max := int(cfgFieldCount) - 1
 	for {
-		skip := false
-		if m.cfg.Provider != "local" && m.cursor == cfgLocalURL {
-			skip = true
+		var skip bool
+		switch m.cursor {
+		case cfgLocalURL:
+			skip = m.cfg.Provider != "local"
+		case cfgGmailClientID, cfgGmailClientSecret, cfgGmailAuthBtn:
+			skip = m.cfg.EmailProvider != "gmail"
+		case cfgSMTPHost, cfgSMTPPort, cfgSMTPUser, cfgSMTPPass:
+			skip = m.cfg.EmailProvider != "smtp"
 		}
 		if !skip {
 			break
@@ -168,6 +195,16 @@ func (m configModel) activate() (tea.Model, tea.Cmd) {
 	case cfgEmailMode:
 		m.cfg.EmailMode = cycleEmailMode(m.cfg.EmailMode, true)
 		_ = saveConfig(m.cfg)
+	case cfgEmailProvider:
+		m.cfg.EmailProvider = cycleEmailProvider(m.cfg.EmailProvider, true)
+		_ = saveConfig(m.cfg)
+	case cfgGmailAuthBtn:
+		if m.cfg.GmailClientID == "" || m.cfg.GmailClientSecret == "" {
+			m.statusMsg = "Set Client ID and Client Secret first."
+			return m, nil
+		}
+		m.statusMsg = "Opening browser for Gmail sign-in…"
+		return m, startOAuthFlowCmd(m.cfg.GmailClientID, m.cfg.GmailClientSecret)
 	case cfgDaemonBtn:
 		if m.daemonRunning {
 			if err := stopDaemon(); err != nil {
@@ -226,6 +263,12 @@ func (m *configModel) textFieldValue() string {
 		return m.cfg.WorkDir
 	case cfgLocalURL:
 		return m.cfg.LocalURL
+	case cfgFromAddr:
+		return m.cfg.FromAddr
+	case cfgGmailClientID:
+		return m.cfg.GmailClientID
+	case cfgGmailClientSecret:
+		return m.cfg.GmailClientSecret
 	case cfgSMTPHost:
 		return m.cfg.SMTPHost
 	case cfgSMTPPort:
@@ -233,8 +276,6 @@ func (m *configModel) textFieldValue() string {
 			return ""
 		}
 		return strconv.Itoa(m.cfg.SMTPPort)
-	case cfgFromAddr:
-		return m.cfg.FromAddr
 	case cfgSMTPUser:
 		return m.cfg.SMTPUser
 	case cfgSMTPPass:
@@ -255,14 +296,18 @@ func (m *configModel) applyEdit(val string) {
 		m.cfg.WorkDir = val
 	case cfgLocalURL:
 		m.cfg.LocalURL = val
+	case cfgFromAddr:
+		m.cfg.FromAddr = val
+	case cfgGmailClientID:
+		m.cfg.GmailClientID = val
+	case cfgGmailClientSecret:
+		m.cfg.GmailClientSecret = val
 	case cfgSMTPHost:
 		m.cfg.SMTPHost = val
 	case cfgSMTPPort:
 		if p, err := strconv.Atoi(val); err == nil {
 			m.cfg.SMTPPort = p
 		}
-	case cfgFromAddr:
-		m.cfg.FromAddr = val
 	case cfgSMTPUser:
 		m.cfg.SMTPUser = val
 	case cfgSMTPPass:
@@ -280,6 +325,19 @@ func cycleProvider(current string, forward bool) string {
 		}
 	}
 	return providers[0]
+}
+
+func cycleEmailProvider(current string, forward bool) string {
+	opts := []string{"smtp", "gmail"}
+	for i, v := range opts {
+		if v == current {
+			if forward {
+				return opts[(i+1)%len(opts)]
+			}
+			return opts[(i+len(opts)-1)%len(opts)]
+		}
+	}
+	return "smtp"
 }
 
 func (m configModel) View() string {
@@ -318,7 +376,10 @@ func (m configModel) buildRows() []string {
 		value string
 	}
 
-	allRows := []row{
+	var lines []string
+
+	// Core settings
+	coreRows := []row{
 		{cfgDaemonMode, "Daemon mode", tog(string(m.cfg.DaemonMode))},
 		{cfgNightlyTime, "Run at", tv(m.cfg.NightlyTime)},
 		{cfgProvider, "Provider", tog(m.cfg.Provider)},
@@ -326,13 +387,9 @@ func (m configModel) buildRows() []string {
 		{cfgAPIKey, "API key", tv(maskKey(m.cfg.APIKey))},
 		{cfgWorkDir, "Work dir", tv(m.cfg.WorkDir)},
 	}
-
-	var lines []string
-	for _, r := range allRows {
+	for _, r := range coreRows {
 		lines = append(lines, m.renderRow(r.field, r.label, r.value, lbl))
 	}
-
-	// local URL (conditional)
 	if m.cfg.Provider == "local" {
 		val := tv(m.cfg.LocalURL)
 		if m.editing && m.cursor == cfgLocalURL {
@@ -341,21 +398,44 @@ func (m configModel) buildRows() []string {
 		lines = append(lines, m.renderRowRaw(cfgLocalURL, "Local URL", val, lbl))
 	}
 
-	// email section
+	// Email section
 	lines = append(lines, sectionHdr("Email"))
-	emailRows := []row{
-		{cfgEmailMode, "Email mode", tog(emailModeLabel(m.cfg.EmailMode))},
-		{cfgSMTPHost, "SMTP host", tv(m.cfg.SMTPHost)},
-		{cfgSMTPPort, "SMTP port", tv(strconv.Itoa(m.cfg.SMTPPort))},
-		{cfgFromAddr, "From address", tv(m.cfg.FromAddr)},
-		{cfgSMTPUser, "SMTP user", tv(m.cfg.SMTPUser)},
-		{cfgSMTPPass, "SMTP password", tv(maskKey(m.cfg.SMTPPassword))},
-	}
-	for _, r := range emailRows {
-		lines = append(lines, m.renderRow(r.field, r.label, r.value, lbl))
+	lines = append(lines, m.renderRow(cfgEmailMode, "Email mode", tog(emailModeLabel(m.cfg.EmailMode)), lbl))
+	lines = append(lines, m.renderRow(cfgEmailProvider, "Provider", tog(m.cfg.EmailProvider), lbl))
+	lines = append(lines, m.renderRow(cfgFromAddr, "From address", tv(m.cfg.FromAddr), lbl))
+
+	if m.cfg.EmailProvider == "gmail" {
+		lines = append(lines, sectionHdr("Gmail OAuth"))
+		lines = append(lines, m.renderRow(cfgGmailClientID, "Client ID", tv(maskKey(m.cfg.GmailClientID)), lbl))
+		lines = append(lines, m.renderRow(cfgGmailClientSecret, "Client secret", tv(maskKey(m.cfg.GmailClientSecret)), lbl))
+
+		// Auth button row
+		authStatus := styleMuted.Render("not authenticated")
+		if isOAuthAuthenticated() {
+			authStatus = lipgloss.NewStyle().Foreground(colorDone).Render("✓ authenticated")
+		}
+		btnLabel := lipgloss.NewStyle().Foreground(colorPrimary).Bold(true).Render("[Authenticate Gmail]")
+		btnLine := lbl("Sign in") + authStatus + "  " + btnLabel
+		if m.cursor == cfgGmailAuthBtn {
+			btnLine = lipgloss.NewStyle().
+				Background(colorSelected).Foreground(colorText).Padding(0, 1).
+				Render(fmt.Sprintf("%-18s%s  %s", "Sign in", authStatus, "[Authenticate Gmail]"))
+		}
+		lines = append(lines, "  "+btnLine)
+	} else {
+		lines = append(lines, sectionHdr("SMTP"))
+		smtpRows := []row{
+			{cfgSMTPHost, "SMTP host", tv(m.cfg.SMTPHost)},
+			{cfgSMTPPort, "SMTP port", tv(strconv.Itoa(m.cfg.SMTPPort))},
+			{cfgSMTPUser, "SMTP user", tv(m.cfg.SMTPUser)},
+			{cfgSMTPPass, "SMTP password", tv(maskKey(m.cfg.SMTPPassword))},
+		}
+		for _, r := range smtpRows {
+			lines = append(lines, m.renderRow(r.field, r.label, r.value, lbl))
+		}
 	}
 
-	// daemon button
+	// Daemon button
 	lines = append(lines, "")
 	statusStr, btnStr := m.daemonStatusRow()
 	btnLine := lbl("Daemon") + statusStr + "  " + btnStr
