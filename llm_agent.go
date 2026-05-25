@@ -63,7 +63,7 @@ var toolSchemas = []struct {
 
 // ── system prompt ─────────────────────────────────────────────────────────────
 
-func buildAgentSystemPrompt(task *Task, workspace string) string {
+func buildAgentSystemPrompt(cfg *Config, task *Task, workspace string) string {
 	var b strings.Builder
 	b.WriteString("You are a task agent helping a software developer.\n\n")
 	fmt.Fprintf(&b, "You have a sandboxed workspace at: %s\n", workspace)
@@ -71,7 +71,7 @@ func buildAgentSystemPrompt(task *Task, workspace string) string {
 	b.WriteString("**Rules:**\n")
 	b.WriteString("- When writing code, first create a project folder: create_directory(\"projects/<project-name>\")\n")
 	b.WriteString("- Keep all project files inside that folder.\n")
-	b.WriteString("- Paths outside the workspace are blocked automatically; if blocked, adjust and continue.\n\n")
+	b.WriteString("- Paths outside the workspace are blocked; if blocked, adjust and continue.\n\n")
 	b.WriteString("**Current task:**\n")
 	fmt.Fprintf(&b, "Title: %s\n", task.Title)
 	if task.Description != "" {
@@ -82,7 +82,23 @@ func buildAgentSystemPrompt(task *Task, workspace string) string {
 	b.WriteString("At the end of your final response, list any files you wrote:\n\n")
 	b.WriteString("<!-- task-agent-files\n")
 	b.WriteString("projects/my-project/main.go\n")
-	b.WriteString("-->")
+	b.WriteString("-->\n")
+
+	if cfg.EmailMode != EmailModeSummaryOnly {
+		b.WriteString("\n**Email replies:**\n")
+		b.WriteString("If this task involves an email that needs a reply, append a draft using:\n\n")
+		b.WriteString("<!-- task-agent-email\n")
+		b.WriteString("to: sender@example.com\n")
+		b.WriteString("subject: Re: Original Subject\n")
+		b.WriteString("---\n")
+		b.WriteString("Reply body here.\n")
+		b.WriteString("-->\n\n")
+		if cfg.EmailMode == EmailModeAutoSend {
+			b.WriteString("The draft will be sent automatically — write it ready to send.\n")
+		} else {
+			b.WriteString("The user will review the draft before it is sent.\n")
+		}
+	}
 	return b.String()
 }
 
@@ -125,7 +141,7 @@ type claudeMsg struct {
 }
 
 func claudeAgentLoop(cfg *Config, task *Task, exec *Executor) (string, []string, error) {
-	system := buildAgentSystemPrompt(task, exec.workspace)
+	system := buildAgentSystemPrompt(cfg, task, exec.workspace)
 
 	// seed conversation from prior comments
 	var messages []claudeMsg
@@ -257,7 +273,7 @@ type oaiToolCall struct {
 
 func openaiAgentLoop(cfg *Config, task *Task, exec *Executor) (string, []string, error) {
 	baseURL := openaiBaseURL(cfg)
-	system := buildAgentSystemPrompt(task, exec.workspace)
+	system := buildAgentSystemPrompt(cfg, task, exec.workspace)
 
 	// seed with system + conversation history
 	messages := []openAIMsg{{Role: "system", Content: system}}

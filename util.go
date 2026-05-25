@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 )
 
 func newID() string {
@@ -24,3 +25,5 @@ func dataDir() string {
 func dataPath(name string) string {
 	return filepath.Join(dataDir(), name)
 }
+
+func nowTime() time.Time { return time.Now() }

@@ -30,7 +30,8 @@ type detailModel struct {
 	reply      textarea.Model
 	view       sv
 	fileCursor int
-	viewFile   string // path currently shown
+	viewFile   string
+	statusMsg  string
 	width      int
 	height     int
 }
@@ -104,6 +105,23 @@ func (m detailModel) keyThread(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.view = svFilePick
 			m.fileCursor = 0
 		}
+	case "a":
+		if draft := m.store.pendingDraft(m.task.ID); draft != nil {
+			cfg, _ := loadConfig()
+			if err := sendEmail(cfg, draft); err != nil {
+				m.statusMsg = "send failed: " + err.Error()
+			} else {
+				m.store.updateEmailDraft(m.task.ID, "sent")
+				m.statusMsg = "Email sent to " + draft.To
+				m = m.refreshViewport()
+			}
+		}
+	case "x":
+		if draft := m.store.pendingDraft(m.task.ID); draft != nil {
+			m.store.updateEmailDraft(m.task.ID, "rejected")
+			m.statusMsg = "Draft rejected."
+			m = m.refreshViewport()
+		}
 	case "up", "k":
 		m.vp.LineUp(3)
 	case "down", "j":
@@ -124,7 +142,7 @@ func (m detailModel) keyReply(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "ctrl+s":
 		body := strings.TrimSpace(m.reply.Value())
 		if body != "" {
-			m.store.addComment(m.task.ID, "user", body, nil)
+			m.store.addComment(m.task.ID, "user", body, nil, nil)
 			m = m.refreshViewport()
 			m.vp.GotoBottom()
 		}
@@ -249,9 +267,18 @@ func (m detailModel) viewThread() string {
 	if len(files) > 0 {
 		fileHint = "  •  f files(" + fmt.Sprintf("%d", len(files)) + ")"
 	}
-	help := styleHelp.Render("r reply  •  j/k scroll" + fileHint + "  •  esc back")
+	emailHint := ""
+	if m.store.pendingDraft(m.task.ID) != nil {
+		emailHint = "  •  " + lipgloss.NewStyle().Foreground(colorUnread).Bold(true).Render("a send  x reject")
+	}
+	help := styleHelp.Render("r reply  •  j/k scroll"+fileHint) + emailHint + styleHelp.Render("  •  esc back")
+
+	var extra string
+	if m.statusMsg != "" {
+		extra = "\n" + lipgloss.NewStyle().Foreground(colorDone).Render(m.statusMsg)
+	}
 	return lipgloss.NewStyle().Padding(1, 2).Render(
-		m.taskHeader() + "\n" + m.divider() + "\n" + m.vp.View() + "\n" + help,
+		m.taskHeader() + "\n" + m.divider() + "\n" + m.vp.View() + "\n" + help + extra,
 	)
 }
 
@@ -352,12 +379,13 @@ func renderComment(c Comment, width int) string {
 	if len(c.Files) > 0 {
 		links := make([]string, len(c.Files))
 		for i, f := range c.Files {
-			links[i] = lipgloss.NewStyle().
-				Foreground(colorPrimary).
-				Render("↗ " + f)
+			links[i] = lipgloss.NewStyle().Foreground(colorPrimary).Render("↗ " + f)
 		}
 		fileSection = "\n" + styleMuted.Render("files: ") + strings.Join(links, "  ")
 	}
+
+	// email draft
+	emailSection := renderEmailDraft(c.EmailDraft)
 
 	borderColor := colorAgent
 	if !isAgent {
@@ -369,7 +397,52 @@ func renderComment(c Comment, width int) string {
 		BorderStyle(lipgloss.ThickBorder()).
 		BorderForeground(borderColor).
 		PaddingLeft(1).
-		Render(header + "\n" + body + fileSection)
+		Render(header + "\n" + body + fileSection + emailSection)
+}
+
+func renderEmailDraft(d *EmailDraft) string {
+	if d == nil {
+		return ""
+	}
+
+	envelope := lipgloss.NewStyle().Foreground(colorUnread).Render("✉")
+
+	switch d.Status {
+	case "sent":
+		ts := ""
+		if d.SentAt != nil {
+			ts = "  " + styleMuted.Render(d.SentAt.Format(time.Kitchen))
+		}
+		return "\n" + envelope + " " +
+			lipgloss.NewStyle().Foreground(colorDone).Render("Sent → "+d.To) + ts
+
+	case "rejected":
+		return "\n" + envelope + " " + styleMuted.Render("Draft rejected")
+	}
+
+	// pending
+	subj := styleMuted.Render("Subject: ") + d.Subject
+	to := styleMuted.Render("To:      ") + d.To
+
+	// preview first 3 lines of body
+	bodyLines := strings.Split(strings.TrimSpace(d.Body), "\n")
+	if len(bodyLines) > 3 {
+		bodyLines = append(bodyLines[:3], styleMuted.Render("…"))
+	}
+	preview := strings.Join(bodyLines, "\n")
+
+	box := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(colorUnread).
+		Padding(0, 1).
+		MarginTop(1).
+		Render(
+			envelope + " " + lipgloss.NewStyle().Foreground(colorUnread).Bold(true).Render("Draft ready") +
+				"\n" + to + "\n" + subj +
+				"\n" + styleMuted.Render(strings.Repeat("─", 30)) +
+				"\n" + lipgloss.NewStyle().Foreground(colorSubtext).Render(preview),
+		)
+	return "\n" + box
 }
 
 // ── file loading ──────────────────────────────────────────────────────────────

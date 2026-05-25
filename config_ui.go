@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/textinput"
@@ -19,6 +20,13 @@ const (
 	cfgAPIKey
 	cfgWorkDir
 	cfgLocalURL
+	// email section
+	cfgEmailMode
+	cfgSMTPHost
+	cfgSMTPPort
+	cfgFromAddr
+	cfgSMTPUser
+	cfgSMTPPass
 	cfgDaemonBtn
 	cfgFieldCount
 )
@@ -38,7 +46,6 @@ type configModel struct {
 func newConfigModel(store *Store, cfg *Config, w, h int) configModel {
 	ti := textinput.New()
 	ti.CharLimit = 256
-
 	running, pid := isDaemonRunning()
 	return configModel{
 		store:         store,
@@ -73,70 +80,73 @@ func (m configModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m configModel) updateNav(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	maxField := int(cfgFieldCount) - 1
-	// hide local URL field unless provider is local
-	if m.cfg.Provider != "local" && m.cursor == cfgLocalURL {
-		m.cursor = cfgModel
-	}
-
+	max := int(cfgFieldCount) - 1
 	switch msg.String() {
 	case "esc", "q":
 		return newListModel(m.store), nil
 	case "ctrl+c":
 		return m, tea.Quit
-
 	case "up", "k":
 		m.cursor--
 		if m.cursor < 0 {
-			m.cursor = cfgField(maxField)
+			m.cursor = cfgField(max)
 		}
-		m = m.skipHiddenUp()
-
+		m = m.skipHidden(-1)
 	case "down", "j", "tab":
 		m.cursor++
-		if int(m.cursor) > maxField {
+		if int(m.cursor) > max {
 			m.cursor = 0
 		}
-		m = m.skipHiddenDown()
-
+		m = m.skipHidden(1)
 	case "enter", " ":
 		return m.activate()
-
 	case "left", "right", "h", "l":
-		// cycle toggle fields inline
+		fwd := msg.String() == "right" || msg.String() == "l"
 		switch m.cursor {
 		case cfgDaemonMode:
-			if m.cfg.DaemonMode == DaemonModeNightly {
-				m.cfg.DaemonMode = DaemonModeResponsive
+			if fwd {
+				if m.cfg.DaemonMode == DaemonModeNightly {
+					m.cfg.DaemonMode = DaemonModeResponsive
+				} else {
+					m.cfg.DaemonMode = DaemonModeNightly
+				}
 			} else {
-				m.cfg.DaemonMode = DaemonModeNightly
+				if m.cfg.DaemonMode == DaemonModeResponsive {
+					m.cfg.DaemonMode = DaemonModeNightly
+				} else {
+					m.cfg.DaemonMode = DaemonModeResponsive
+				}
 			}
 			_ = saveConfig(m.cfg)
 		case cfgProvider:
-			m.cfg.Provider = cycleProvider(m.cfg.Provider, msg.String() == "right" || msg.String() == "l")
+			m.cfg.Provider = cycleProvider(m.cfg.Provider, fwd)
 			m.cfg.Model = defaultModels[m.cfg.Provider]
+			_ = saveConfig(m.cfg)
+		case cfgEmailMode:
+			m.cfg.EmailMode = cycleEmailMode(m.cfg.EmailMode, fwd)
 			_ = saveConfig(m.cfg)
 		}
 	}
 	return m, nil
 }
 
-// skipHiddenDown skips cfgLocalURL when provider != local.
-func (m configModel) skipHiddenDown() configModel {
-	if m.cfg.Provider != "local" && m.cursor == cfgLocalURL {
-		m.cursor++
-		if int(m.cursor) >= int(cfgFieldCount) {
+// skipHidden skips conditional fields when their parent is hidden.
+func (m configModel) skipHidden(dir int) configModel {
+	max := int(cfgFieldCount) - 1
+	for {
+		skip := false
+		if m.cfg.Provider != "local" && m.cursor == cfgLocalURL {
+			skip = true
+		}
+		if !skip {
+			break
+		}
+		m.cursor = cfgField(int(m.cursor) + dir)
+		if int(m.cursor) > max {
 			m.cursor = 0
 		}
-	}
-	return m
-}
-
-func (m configModel) skipHiddenUp() configModel {
-	if m.cfg.Provider != "local" && m.cursor == cfgLocalURL {
-		m.cursor--
 		if m.cursor < 0 {
-			m.cursor = cfgField(int(cfgFieldCount) - 1)
+			m.cursor = cfgField(max)
 		}
 	}
 	return m
@@ -151,20 +161,20 @@ func (m configModel) activate() (tea.Model, tea.Cmd) {
 			m.cfg.DaemonMode = DaemonModeNightly
 		}
 		_ = saveConfig(m.cfg)
-
 	case cfgProvider:
 		m.cfg.Provider = cycleProvider(m.cfg.Provider, true)
 		m.cfg.Model = defaultModels[m.cfg.Provider]
 		_ = saveConfig(m.cfg)
-
+	case cfgEmailMode:
+		m.cfg.EmailMode = cycleEmailMode(m.cfg.EmailMode, true)
+		_ = saveConfig(m.cfg)
 	case cfgDaemonBtn:
 		if m.daemonRunning {
 			if err := stopDaemon(); err != nil {
 				m.statusMsg = "stop failed: " + err.Error()
 			} else {
 				m.statusMsg = "Daemon stopped."
-				m.daemonRunning = false
-				m.daemonPID = 0
+				m.daemonRunning, m.daemonPID = false, 0
 			}
 		} else {
 			if err := startDaemon(); err != nil {
@@ -174,15 +184,10 @@ func (m configModel) activate() (tea.Model, tea.Cmd) {
 				m.statusMsg = fmt.Sprintf("Daemon started (pid %d).", m.daemonPID)
 			}
 		}
-
 	default:
-		// text field → enter edit mode
 		m.editing = true
 		m.input.SetValue(m.textFieldValue())
 		m.input.SetCursor(len(m.input.Value()))
-		if m.cursor == cfgAPIKey {
-			m.input.EchoMode = textinput.EchoNormal
-		}
 		m.input.Focus()
 		return m, textinput.Blink
 	}
@@ -221,6 +226,19 @@ func (m *configModel) textFieldValue() string {
 		return m.cfg.WorkDir
 	case cfgLocalURL:
 		return m.cfg.LocalURL
+	case cfgSMTPHost:
+		return m.cfg.SMTPHost
+	case cfgSMTPPort:
+		if m.cfg.SMTPPort == 0 {
+			return ""
+		}
+		return strconv.Itoa(m.cfg.SMTPPort)
+	case cfgFromAddr:
+		return m.cfg.FromAddr
+	case cfgSMTPUser:
+		return m.cfg.SMTPUser
+	case cfgSMTPPass:
+		return m.cfg.SMTPPassword
 	}
 	return ""
 }
@@ -237,6 +255,18 @@ func (m *configModel) applyEdit(val string) {
 		m.cfg.WorkDir = val
 	case cfgLocalURL:
 		m.cfg.LocalURL = val
+	case cfgSMTPHost:
+		m.cfg.SMTPHost = val
+	case cfgSMTPPort:
+		if p, err := strconv.Atoi(val); err == nil {
+			m.cfg.SMTPPort = p
+		}
+	case cfgFromAddr:
+		m.cfg.FromAddr = val
+	case cfgSMTPUser:
+		m.cfg.SMTPUser = val
+	case cfgSMTPPass:
+		m.cfg.SMTPPassword = val
 	}
 }
 
@@ -257,93 +287,102 @@ func (m configModel) View() string {
 	content := styleTitle.Render("Config") + "\n\n" +
 		strings.Join(rows, "\n") +
 		"\n\n" + styleHelp.Render("↑↓ navigate  •  enter/space select  •  ←→ cycle toggles  •  esc back")
-
 	if m.statusMsg != "" {
 		content += "\n" + lipgloss.NewStyle().Foreground(colorDone).Render(m.statusMsg)
 	}
-
 	return lipgloss.NewStyle().Padding(1, 2).Render(content)
 }
 
 func (m configModel) buildRows() []string {
-	label := func(s string) string {
+	lbl := func(s string) string {
 		return lipgloss.NewStyle().Foreground(colorSubtext).Width(18).Render(s)
 	}
-	toggle := func(val string) string {
+	tog := func(val string) string {
 		return lipgloss.NewStyle().Foreground(colorPrimary).Bold(true).Render("[" + val + "]")
 	}
-	textVal := func(val string) string {
+	tv := func(val string) string {
 		if val == "" {
 			return styleMuted.Render("(not set)")
 		}
 		return lipgloss.NewStyle().Foreground(colorText).Render(val)
 	}
+	sectionHdr := func(title string) string {
+		return "\n  " + lipgloss.NewStyle().Foreground(colorMuted).Render(
+			"── "+title+" "+strings.Repeat("─", 30-len(title)),
+		)
+	}
 
-	rows := []struct {
+	type row struct {
 		field cfgField
 		label string
 		value string
-	}{
-		{cfgDaemonMode, "Daemon mode", toggle(string(m.cfg.DaemonMode))},
-		{cfgNightlyTime, "Run at", textVal(m.cfg.NightlyTime)},
-		{cfgProvider, "Provider", toggle(m.cfg.Provider)},
-		{cfgModel, "Model", textVal(m.cfg.Model)},
-		{cfgAPIKey, "API key", textVal(maskKey(m.cfg.APIKey))},
-		{cfgWorkDir, "Work dir", textVal(m.cfg.WorkDir)},
+	}
+
+	allRows := []row{
+		{cfgDaemonMode, "Daemon mode", tog(string(m.cfg.DaemonMode))},
+		{cfgNightlyTime, "Run at", tv(m.cfg.NightlyTime)},
+		{cfgProvider, "Provider", tog(m.cfg.Provider)},
+		{cfgModel, "Model", tv(m.cfg.Model)},
+		{cfgAPIKey, "API key", tv(maskKey(m.cfg.APIKey))},
+		{cfgWorkDir, "Work dir", tv(m.cfg.WorkDir)},
 	}
 
 	var lines []string
-	for _, r := range rows {
-		if r.field == cfgLocalURL {
-			continue // handled separately
-		}
-		val := r.value
-		// replace with live input when editing
-		if m.editing && m.cursor == r.field {
+	for _, r := range allRows {
+		lines = append(lines, m.renderRow(r.field, r.label, r.value, lbl))
+	}
+
+	// local URL (conditional)
+	if m.cfg.Provider == "local" {
+		val := tv(m.cfg.LocalURL)
+		if m.editing && m.cursor == cfgLocalURL {
 			val = m.input.View()
 		}
-		line := label(r.label) + val
-		if m.cursor == r.field && !m.editing {
-			line = lipgloss.NewStyle().
-				Background(colorSelected).
-				Foreground(colorText).
-				Padding(0, 1).
-				Render(fmt.Sprintf("%-*s%s", 18, r.label, val))
-		}
-		lines = append(lines, "  "+line)
+		lines = append(lines, m.renderRowRaw(cfgLocalURL, "Local URL", val, lbl))
 	}
 
-	// local URL only when provider = local
-	if m.cfg.Provider == "local" {
-		urlVal := textVal(m.cfg.LocalURL)
-		if m.editing && m.cursor == cfgLocalURL {
-			urlVal = m.input.View()
-		}
-		line := label("Local URL") + urlVal
-		if m.cursor == cfgLocalURL && !m.editing {
-			line = lipgloss.NewStyle().
-				Background(colorSelected).
-				Foreground(colorText).
-				Padding(0, 1).
-				Render(fmt.Sprintf("%-18s%s", "Local URL", urlVal))
-		}
-		lines = append(lines, "  "+line)
+	// email section
+	lines = append(lines, sectionHdr("Email"))
+	emailRows := []row{
+		{cfgEmailMode, "Email mode", tog(emailModeLabel(m.cfg.EmailMode))},
+		{cfgSMTPHost, "SMTP host", tv(m.cfg.SMTPHost)},
+		{cfgSMTPPort, "SMTP port", tv(strconv.Itoa(m.cfg.SMTPPort))},
+		{cfgFromAddr, "From address", tv(m.cfg.FromAddr)},
+		{cfgSMTPUser, "SMTP user", tv(m.cfg.SMTPUser)},
+		{cfgSMTPPass, "SMTP password", tv(maskKey(m.cfg.SMTPPassword))},
+	}
+	for _, r := range emailRows {
+		lines = append(lines, m.renderRow(r.field, r.label, r.value, lbl))
 	}
 
-	// daemon status + button
+	// daemon button
 	lines = append(lines, "")
 	statusStr, btnStr := m.daemonStatusRow()
-	btnLine := label("Daemon") + statusStr + "  " + btnStr
+	btnLine := lbl("Daemon") + statusStr + "  " + btnStr
 	if m.cursor == cfgDaemonBtn {
 		btnLine = lipgloss.NewStyle().
-			Background(colorSelected).
-			Foreground(colorText).
-			Padding(0, 1).
+			Background(colorSelected).Foreground(colorText).Padding(0, 1).
 			Render(fmt.Sprintf("%-18s%s  %s", "Daemon", statusStr, btnStr))
 	}
 	lines = append(lines, "  "+btnLine)
-
 	return lines
+}
+
+func (m configModel) renderRow(field cfgField, label, value string, lbl func(string) string) string {
+	val := value
+	if m.editing && m.cursor == field {
+		val = m.input.View()
+	}
+	return m.renderRowRaw(field, label, val, lbl)
+}
+
+func (m configModel) renderRowRaw(field cfgField, label, val string, lbl func(string) string) string {
+	if m.cursor == field && !m.editing {
+		return "  " + lipgloss.NewStyle().
+			Background(colorSelected).Foreground(colorText).Padding(0, 1).
+			Render(fmt.Sprintf("%-18s%s", label, val))
+	}
+	return "  " + lbl(label) + val
 }
 
 func (m configModel) daemonStatusRow() (status, btn string) {
@@ -359,6 +398,9 @@ func (m configModel) daemonStatusRow() (status, btn string) {
 }
 
 func maskKey(k string) string {
+	if k == "" {
+		return ""
+	}
 	if len(k) <= 8 {
 		return strings.Repeat("*", len(k))
 	}

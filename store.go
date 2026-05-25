@@ -17,11 +17,12 @@ const (
 )
 
 type Comment struct {
-	ID        string    `json:"id"`
-	Author    string    `json:"author"` // "user" or "agent"
-	Body      string    `json:"body"`
-	Files     []string  `json:"files,omitempty"`
-	CreatedAt time.Time `json:"created_at"`
+	ID          string      `json:"id"`
+	Author      string      `json:"author"` // "user" or "agent"
+	Body        string      `json:"body"`
+	Files       []string    `json:"files,omitempty"`
+	EmailDraft  *EmailDraft `json:"email_draft,omitempty"`
+	CreatedAt   time.Time   `json:"created_at"`
 }
 
 type Task struct {
@@ -86,15 +87,16 @@ func (s *Store) deleteTask(id string) {
 	_ = saveStore(s)
 }
 
-func (s *Store) addComment(taskID, author, body string, files []string) {
+func (s *Store) addComment(taskID, author, body string, files []string, draft *EmailDraft) {
 	for _, t := range s.Tasks {
 		if t.ID == taskID {
 			t.Comments = append(t.Comments, Comment{
-				ID:        newID(),
-				Author:    author,
-				Body:      body,
-				Files:     files,
-				CreatedAt: time.Now(),
+				ID:         newID(),
+				Author:     author,
+				Body:       body,
+				Files:      files,
+				EmailDraft: draft,
+				CreatedAt:  time.Now(),
 			})
 			if author == "agent" {
 				t.HasUnread = true
@@ -103,4 +105,40 @@ func (s *Store) addComment(taskID, author, body string, files []string) {
 		}
 	}
 	_ = saveStore(s)
+}
+
+// updateEmailDraft sets the status (and optionally SentAt) on the first pending draft found.
+func (s *Store) updateEmailDraft(taskID, status string) {
+	now := time.Now()
+	for _, t := range s.Tasks {
+		if t.ID != taskID {
+			continue
+		}
+		for i := range t.Comments {
+			d := t.Comments[i].EmailDraft
+			if d != nil && d.Status == "pending" {
+				d.Status = status
+				if status == "sent" {
+					d.SentAt = &now
+				}
+				_ = saveStore(s)
+				return
+			}
+		}
+	}
+}
+
+// pendingDraft returns the first pending email draft on a task, or nil.
+func (s *Store) pendingDraft(taskID string) *EmailDraft {
+	for _, t := range s.Tasks {
+		if t.ID != taskID {
+			continue
+		}
+		for _, c := range t.Comments {
+			if c.EmailDraft != nil && c.EmailDraft.Status == "pending" {
+				return c.EmailDraft
+			}
+		}
+	}
+	return nil
 }

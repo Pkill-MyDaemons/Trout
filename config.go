@@ -30,7 +30,15 @@ type Config struct {
 	Model       string     `json:"model"`
 	APIKey      string     `json:"api_key"`
 	WorkDir     string     `json:"work_dir"`
-	LocalURL    string     `json:"local_url"` // for Ollama etc.
+	LocalURL    string     `json:"local_url"`
+
+	// Email
+	EmailMode    EmailMode `json:"email_mode"`
+	SMTPHost     string    `json:"smtp_host"`
+	SMTPPort     int       `json:"smtp_port"`
+	FromAddr     string    `json:"from_addr"`
+	SMTPUser     string    `json:"smtp_user"`
+	SMTPPassword string    `json:"smtp_password"`
 }
 
 func defaultConfig() *Config {
@@ -41,6 +49,8 @@ func defaultConfig() *Config {
 		Model:       defaultModels["claude"],
 		WorkDir:     defaultWorkspace(),
 		LocalURL:    "http://localhost:11434",
+		EmailMode:   EmailModeSummaryOnly,
+		SMTPPort:    587,
 	}
 }
 
