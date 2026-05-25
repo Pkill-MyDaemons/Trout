@@ -15,6 +15,15 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
+func oauthLog(format string, args ...any) {
+	f, err := os.OpenFile(dataPath("oauth.log"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0600)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	fmt.Fprintf(f, "[%s] %s\n", time.Now().Format(time.RFC3339), fmt.Sprintf(format, args...))
+}
+
 const (
 	googleAuthURL  = "https://accounts.google.com/o/oauth2/v2/auth"
 	googleTokenURL = "https://oauth2.googleapis.com/token"
@@ -82,13 +91,16 @@ func startOAuthFlowCmd(clientID, clientSecret string) tea.Cmd {
 }
 
 func runOAuthFlow(clientID, clientSecret string) (string, error) {
+	oauthLog("starting OAuth flow")
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
+		oauthLog("ERROR: listen: %v", err)
 		return "", fmt.Errorf("start local server: %w", err)
 	}
 	port := listener.Addr().(*net.TCPAddr).Port
 	redirectURI := fmt.Sprintf("http://127.0.0.1:%d/callback", port)
 	state := newID()
+	oauthLog("listening on port %d, state=%s", port, state)
 
 	params := url.Values{
 		"client_id":     {clientID},
@@ -107,22 +119,28 @@ func runOAuthFlow(clientID, clientSecret string) (string, error) {
 	mux := http.NewServeMux()
 	srv := &http.Server{Handler: mux}
 	mux.HandleFunc("/callback", func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Query().Get("state") != state {
+		oauthLog("callback hit: %s", r.URL.RawQuery)
+		gotState := r.URL.Query().Get("state")
+		if gotState != state {
+			oauthLog("ERROR: state mismatch got=%s want=%s", gotState, state)
 			errCh <- fmt.Errorf("state mismatch — possible CSRF")
 			http.Error(w, "Bad state", 400)
 			return
 		}
 		if e := r.URL.Query().Get("error"); e != "" {
+			oauthLog("ERROR: google returned error: %s", e)
 			errCh <- fmt.Errorf("google: %s", e)
 			fmt.Fprintf(w, "<html><body><h2>Authentication failed: %s. You can close this tab.</h2></body></html>", e)
 			return
 		}
 		code := r.URL.Query().Get("code")
 		if code == "" {
+			oauthLog("ERROR: no code in callback")
 			errCh <- fmt.Errorf("no code in callback")
 			http.Error(w, "No code", 400)
 			return
 		}
+		oauthLog("got code (len=%d), sending success page", len(code))
 		fmt.Fprint(w, "<html><body><h2>Authenticated! You can close this tab.</h2></body></html>")
 		codeCh <- code
 	})
@@ -135,21 +153,35 @@ func runOAuthFlow(clientID, clientSecret string) (string, error) {
 	var code string
 	select {
 	case code = <-codeCh:
+		oauthLog("received code from channel")
 	case err = <-errCh:
+		oauthLog("received error from channel: %v", err)
 		return "", err
 	case <-time.After(5 * time.Minute):
+		oauthLog("ERROR: timed out waiting for callback")
 		return "", fmt.Errorf("OAuth timed out after 5 minutes")
 	}
 
+	oauthLog("exchanging code for token")
 	token, err := exchangeCodeForToken(clientID, clientSecret, code, redirectURI)
 	if err != nil {
+		oauthLog("ERROR: token exchange: %v", err)
 		return "", fmt.Errorf("token exchange: %w", err)
 	}
+	oauthLog("token exchange succeeded, expiry=%s", token.Expiry.Format(time.RFC3339))
+
 	if err := saveOAuthToken(token); err != nil {
+		oauthLog("ERROR: save token: %v", err)
 		return "", fmt.Errorf("save token: %w", err)
 	}
+	oauthLog("token saved to %s", oauthTokenPath())
 
-	email, _ := fetchUserEmail(token.AccessToken)
+	email, err := fetchUserEmail(token.AccessToken)
+	if err != nil {
+		oauthLog("WARN: could not fetch user email: %v", err)
+	} else {
+		oauthLog("user email: %s", email)
+	}
 	return email, nil
 }
 
