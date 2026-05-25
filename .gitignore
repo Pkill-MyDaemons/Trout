@@ -1,0 +1,5 @@
+task-agent
+tasks.json
+config.json
+.task-agent.pid
+daemon.pid
