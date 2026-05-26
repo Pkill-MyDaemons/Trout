@@ -186,18 +186,21 @@ func smtpSend(c *smtp.Client, user, pass, host, from string, to []string, msg []
 	return err
 }
 
-// isNoReplySender returns true if any "From:" line in the task title or
-// description contains "no-reply" or "noreply" — automated senders we skip.
+// isNoReplyAddress returns true if an address string looks like an automated sender.
+func isNoReplyAddress(addr string) bool {
+	lower := strings.ToLower(addr)
+	return strings.Contains(lower, "no-reply") ||
+		strings.Contains(lower, "noreply") ||
+		strings.Contains(lower, "do-not-reply") ||
+		strings.Contains(lower, "donotreply")
+}
+
+// isNoReplySender checks the "From:" line embedded in a task's description.
 func isNoReplySender(task *Task) bool {
-	combined := strings.ToLower(task.Title + "\n" + task.Description)
-	for _, line := range strings.Split(combined, "\n") {
+	for _, line := range strings.Split(task.Description, "\n") {
 		line = strings.TrimSpace(line)
-		if !strings.HasPrefix(line, "from:") {
-			continue
-		}
-		addr := line[5:]
-		if strings.Contains(addr, "no-reply") || strings.Contains(addr, "noreply") {
-			return true
+		if strings.HasPrefix(strings.ToLower(line), "from:") {
+			return isNoReplyAddress(line[5:])
 		}
 	}
 	return false

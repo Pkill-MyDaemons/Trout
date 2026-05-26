@@ -27,8 +27,8 @@ func oauthLog(format string, args ...any) {
 const (
 	googleAuthURL  = "https://accounts.google.com/o/oauth2/v2/auth"
 	googleTokenURL = "https://oauth2.googleapis.com/token"
-	// gmail.send to send; email (OpenID) to read the account address after auth.
-	gmailScope = "https://www.googleapis.com/auth/gmail.send email"
+	// gmail.modify covers send + read + label changes (mark as read); email for account address.
+	gmailScope = "https://www.googleapis.com/auth/gmail.modify email"
 )
 
 type OAuthToken struct {

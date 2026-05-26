@@ -28,6 +28,7 @@ const (
 	cfgGmailClientID
 	cfgGmailClientSecret
 	cfgGmailAuthBtn
+	cfgGmailPollEnabled
 	// smtp fields
 	cfgSMTPHost
 	cfgSMTPPort
@@ -147,6 +148,9 @@ func (m configModel) updateNav(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.cfg.EmailProvider = cycleEmailProvider(m.cfg.EmailProvider, fwd)
 			_ = saveConfig(m.cfg)
 			m = m.skipHidden(1)
+		case cfgGmailPollEnabled:
+			m.cfg.GmailPollEnabled = !m.cfg.GmailPollEnabled
+			_ = saveConfig(m.cfg)
 		}
 	}
 	return m, nil
@@ -160,7 +164,7 @@ func (m configModel) skipHidden(dir int) configModel {
 		switch m.cursor {
 		case cfgLocalURL:
 			skip = m.cfg.Provider != "local"
-		case cfgGmailClientID, cfgGmailClientSecret, cfgGmailAuthBtn:
+		case cfgGmailClientID, cfgGmailClientSecret, cfgGmailAuthBtn, cfgGmailPollEnabled:
 			skip = m.cfg.EmailProvider != "gmail"
 		case cfgSMTPHost, cfgSMTPPort, cfgSMTPUser, cfgSMTPPass:
 			skip = m.cfg.EmailProvider != "smtp"
@@ -197,6 +201,9 @@ func (m configModel) activate() (tea.Model, tea.Cmd) {
 		_ = saveConfig(m.cfg)
 	case cfgEmailProvider:
 		m.cfg.EmailProvider = cycleEmailProvider(m.cfg.EmailProvider, true)
+		_ = saveConfig(m.cfg)
+	case cfgGmailPollEnabled:
+		m.cfg.GmailPollEnabled = !m.cfg.GmailPollEnabled
 		_ = saveConfig(m.cfg)
 	case cfgGmailAuthBtn:
 		if m.cfg.GmailClientID == "" || m.cfg.GmailClientSecret == "" {
@@ -408,6 +415,12 @@ func (m configModel) buildRows() []string {
 		lines = append(lines, sectionHdr("Gmail OAuth"))
 		lines = append(lines, m.renderRow(cfgGmailClientID, "Client ID", tv(maskKey(m.cfg.GmailClientID)), lbl))
 		lines = append(lines, m.renderRow(cfgGmailClientSecret, "Client secret", tv(maskKey(m.cfg.GmailClientSecret)), lbl))
+
+		pollVal := "off"
+		if m.cfg.GmailPollEnabled {
+			pollVal = "on"
+		}
+		lines = append(lines, m.renderRow(cfgGmailPollEnabled, "Inbox polling", tog(pollVal), lbl))
 
 		// Auth button row
 		authStatus := styleMuted.Render("not authenticated")

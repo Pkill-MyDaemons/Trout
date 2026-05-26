@@ -44,8 +44,8 @@ func startDaemon() error {
 		return err
 	}
 	cmd := exec.Command(exe, "--daemon")
-	cmd.Stdout = nil
-	cmd.Stderr = nil
+	// cmd.Stdout = nil
+	// cmd.Stderr = nil
 	if err := cmd.Start(); err != nil {
 		return err
 	}
@@ -80,31 +80,43 @@ func runDaemonLoop(cfg *Config) {
 }
 
 func runResponsive(cfg *Config, sigs chan os.Signal) {
-	tick := func() {
-		fresh, _ := loadConfig()
-		store, _ := loadStore()
-		if fresh == nil || store == nil {
-			return
-		}
-		for _, t := range store.Tasks {
-			if needsAgentResponse(t, false) {
-				processTask(fresh, t, store)
-			}
-		}
-	}
+    tick := func() {
+        fresh, err := loadConfig()
+        if err != nil {
+            fmt.Fprintf(os.Stderr, "Error loading config: %v\n", err)
+            return
+        }
+        store, err := loadStore()
+        if err != nil {
+            fmt.Fprintf(os.Stderr, "Error loading store: %v\n", err)
+            return
+        }
 
-	tick() // run immediately on start
-	ticker := time.NewTicker(5 * time.Minute)
-	defer ticker.Stop()
+        if err := pollGmailInbox(fresh, store); err != nil {
+            fmt.Fprintf(os.Stderr, "gmail poll: %v\n", err)
+        }
 
-	for {
-		select {
-		case <-ticker.C:
-			tick()
-		case <-sigs:
-			return
-		}
-	}
+        for _, t := range store.Tasks {
+            if needsAgentResponse(t) {
+                go func(task *Task) {
+                    processTask(fresh, task, store)
+                }(t)
+            }
+        }
+    }
+
+    tick() 
+    ticker := time.NewTicker(5 * time.Minute)
+    defer ticker.Stop()
+
+    for {
+        select {
+        case <-ticker.C:
+            tick()
+        case <-sigs:
+            return
+        }
+    }
 }
 
 func runNightly(cfg *Config, sigs chan os.Signal) {
@@ -116,8 +128,11 @@ func runNightly(cfg *Config, sigs chan os.Signal) {
 			fresh, _ := loadConfig()
 			store, _ := loadStore()
 			if fresh != nil && store != nil {
+				if err := pollGmailInbox(fresh, store); err != nil {
+					fmt.Fprintf(os.Stderr, "gmail poll: %v\n", err)
+				}
 				for _, t := range store.Tasks {
-					if needsAgentResponse(t, true) {
+					if needsAgentResponse(t) {
 						processTask(fresh, t, store)
 					}
 				}

@@ -40,6 +40,7 @@ type Config struct {
 	// Gmail OAuth
 	GmailClientID     string `json:"gmail_client_id"`
 	GmailClientSecret string `json:"gmail_client_secret"`
+	GmailPollEnabled  bool   `json:"gmail_poll_enabled"`
 
 	// SMTP
 	SMTPHost     string `json:"smtp_host"`

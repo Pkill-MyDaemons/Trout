@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"os"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -13,6 +14,33 @@ func main() {
 			cfg = defaultConfig()
 		}
 		runDaemonLoop(cfg)
+		return
+	}
+
+	if len(os.Args) > 2 && os.Args[1] == "--run-task" {
+		id := os.Args[2]
+		cfg, err := loadConfig()
+		if err != nil {
+			cfg = defaultConfig()
+		}
+		store, err := loadStore()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "load store: %v\n", err)
+			os.Exit(1)
+		}
+		var target *Task
+		for _, t := range store.Tasks {
+			if t.ID == id {
+				target = t
+				break
+			}
+		}
+		if target == nil {
+			fmt.Fprintf(os.Stderr, "task %q not found\n", id)
+			os.Exit(1)
+		}
+		processTask(cfg, target, store)
+		fmt.Println("done")
 		return
 	}
 

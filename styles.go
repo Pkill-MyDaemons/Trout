@@ -12,9 +12,9 @@ var (
 	colorTodo     = lipgloss.Color("#6B7280")
 	colorAgent    = lipgloss.Color("#A78BFA")
 	colorUser     = lipgloss.Color("#34D399")
-	colorSelected = lipgloss.Color("#1F2937")
+	colorSelected = lipgloss.Color("#ADD8E6")
 	colorBg       = lipgloss.Color("#111827")
-	colorText     = lipgloss.Color("#F9FAFB")
+	colorText     = lipgloss.Color("#0080ffff")
 	colorSubtext  = lipgloss.Color("#9CA3AF")
 
 	styleTitle = lipgloss.NewStyle().

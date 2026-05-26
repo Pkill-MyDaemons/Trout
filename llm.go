@@ -29,7 +29,9 @@ func callLLM(cfg *Config, task *Task) (string, error) {
 	case "gemini":
 		return callOpenAICompat(cfg, system, messages, "https://generativelanguage.googleapis.com/v1beta/openai")
 	case "groq":
+
 		return callOpenAICompat(cfg, system, messages, "https://api.groq.com/openai/v1")
+
 	case "local":
 		base := strings.TrimRight(cfg.LocalURL, "/")
 		if !strings.HasSuffix(base, "/v1") {
@@ -91,7 +93,7 @@ func buildMessages(task *Task) []llmMessage {
 	if len(task.Comments) == 0 {
 		return []llmMessage{{
 			Role:    "user",
-			Content: "Please analyse this task and give your initial response.",
+			Content: "Please analyze this task and give your initial response.",
 		}}
 	}
 

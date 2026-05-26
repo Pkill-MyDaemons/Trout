@@ -2,12 +2,12 @@ package main
 
 import "fmt"
 
-func needsAgentResponse(t *Task, nightly bool) bool {
+func needsAgentResponse(t *Task) bool {
 	if t.Status == StatusDone {
 		return false
 	}
 	if len(t.Comments) == 0 {
-		return nightly
+		return true
 	}
 	return t.Comments[len(t.Comments)-1].Author == "user"
 }
@@ -55,4 +55,12 @@ func processTask(cfg *Config, task *Task, store *Store) {
 	}
 
 	store.addComment(task.ID, "agent", body, files, emailDraft)
+
+	for _, t := range store.Tasks {
+		if t.ID == task.ID && t.Status == StatusTodo {
+			t.Status = StatusInProgress
+			_ = saveStore(store)
+			break
+		}
+	}
 }

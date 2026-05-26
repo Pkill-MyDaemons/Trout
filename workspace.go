@@ -10,10 +10,9 @@ import (
 	"time"
 )
 
-// defaultWorkspace returns ~/task-agent-workspace.
+// defaultWorkspace returns ~/.task-agent/projects.
 func defaultWorkspace() string {
-	home, _ := os.UserHomeDir()
-	return filepath.Join(home, "task-agent-workspace")
+	return dataPath("projects")
 }
 
 // sensitiveBlocks are path fragments that are always denied, even inside the workspace.
