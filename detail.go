@@ -92,7 +92,9 @@ func (m detailModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m detailModel) keyThread(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "q", "esc":
-		return newListModel(m.store), nil
+		lm := newListModel(m.store)
+		lm.width, lm.height = m.width, m.height
+		return lm, nil
 	case "ctrl+c":
 		return m, tea.Quit
 	case "r":
@@ -328,7 +330,11 @@ func (m detailModel) taskHeader() string {
 }
 
 func (m detailModel) divider() string {
-	return styleMuted.Render(strings.Repeat("─", m.width-4))
+	n := m.width - 4
+	if n < 0 {
+		n = 0
+	}
+	return styleMuted.Render(strings.Repeat("─", n))
 }
 
 // ── thread rendering ──────────────────────────────────────────────────────────

@@ -102,7 +102,9 @@ func (m configModel) updateNav(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	max := int(cfgFieldCount) - 1
 	switch msg.String() {
 	case "esc", "q":
-		return newListModel(m.store), nil
+		lm := newListModel(m.store)
+		lm.width, lm.height = m.width, m.height
+		return lm, nil
 	case "ctrl+c":
 		return m, tea.Quit
 	case "up", "k":
