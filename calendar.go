@@ -161,7 +161,7 @@ func (e *Executor) listCalendarEvents(days int) (string, error) {
 	return strings.TrimSpace(sb.String()), nil
 }
 
-func (e *Executor) createCalendarEvent(title, start, end, description, location string) (string, error) {
+func (e *Executor) createCalendarEvent(title, start, end, description, location, attendees string) (string, error) {
 	if e.cfg == nil {
 		return "", fmt.Errorf("no config available")
 	}
@@ -174,12 +174,30 @@ func (e *Executor) createCalendarEvent(title, start, end, description, location 
 		"summary": title,
 		"start":   map[string]string{"dateTime": start},
 		"end":     map[string]string{"dateTime": end},
+		// always request a Google Meet link
+		"conferenceData": map[string]any{
+			"createRequest": map[string]any{
+				"requestId":             fmt.Sprintf("ta-%d", time.Now().UnixNano()),
+				"conferenceSolutionKey": map[string]string{"type": "hangoutsMeet"},
+			},
+		},
 	}
 	if description != "" {
 		event["description"] = description
 	}
 	if location != "" {
 		event["location"] = location
+	}
+	if attendees != "" {
+		var list []map[string]string
+		for _, email := range strings.Split(attendees, ",") {
+			if email = strings.TrimSpace(email); email != "" {
+				list = append(list, map[string]string{"email": email})
+			}
+		}
+		if len(list) > 0 {
+			event["attendees"] = list
+		}
 	}
 
 	body, err := json.Marshal(event)
@@ -188,17 +206,42 @@ func (e *Executor) createCalendarEvent(title, start, end, description, location 
 	}
 
 	var created struct {
-		ID      string `json:"id"`
+		ID       string `json:"id"`
 		HtmlLink string `json:"htmlLink"`
-		Summary string `json:"summary"`
+		Summary  string `json:"summary"`
+		ConferenceData struct {
+			EntryPoints []struct {
+				EntryPointType string `json:"entryPointType"`
+				URI            string `json:"uri"`
+			} `json:"entryPoints"`
+		} `json:"conferenceData"`
 	}
-	if err := calendarPost(token, "calendars/primary/events", body, &created); err != nil {
+	// conferenceDataVersion=1 is required for Meet link generation
+	if err := calendarPost(token, "calendars/primary/events?conferenceDataVersion=1", body, &created); err != nil {
 		return "", err
 	}
-	return fmt.Sprintf("Created event %q — %s", created.Summary, created.HtmlLink), nil
+
+	meetLink := ""
+	for _, ep := range created.ConferenceData.EntryPoints {
+		if ep.EntryPointType == "video" {
+			meetLink = ep.URI
+			break
+		}
+	}
+
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "Created event %q\n", created.Summary)
+	fmt.Fprintf(&sb, "Calendar link: %s\n", created.HtmlLink)
+	if meetLink != "" {
+		fmt.Fprintf(&sb, "Google Meet: %s\n", meetLink)
+	}
+	if attendees != "" {
+		fmt.Fprintf(&sb, "Invited: %s\n", attendees)
+	}
+	return strings.TrimSpace(sb.String()), nil
 }
 
-func (e *Executor) updateCalendarEvent(eventID, title, start, end, description, location string) (string, error) {
+func (e *Executor) updateCalendarEvent(eventID, title, start, end, description, location, attendees string) (string, error) {
 	if e.cfg == nil {
 		return "", fmt.Errorf("no config available")
 	}
@@ -225,6 +268,17 @@ func (e *Executor) updateCalendarEvent(eventID, title, start, end, description, 
 	}
 	if location != "" {
 		patch["location"] = location
+	}
+	if attendees != "" {
+		var list []map[string]string
+		for _, email := range strings.Split(attendees, ",") {
+			if email = strings.TrimSpace(email); email != "" {
+				list = append(list, map[string]string{"email": email})
+			}
+		}
+		if len(list) > 0 {
+			patch["attendees"] = list
+		}
 	}
 
 	body, err := json.Marshal(patch)

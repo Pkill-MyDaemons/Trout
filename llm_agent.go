@@ -86,13 +86,14 @@ var toolSchemas = []struct {
 	},
 	{
 		Name:        "create_calendar_event",
-		Description: "Create a new Google Calendar event.",
+		Description: "Create a new Google Calendar event. Always creates a Google Meet link automatically.",
 		Properties: map[string]any{
 			"title":       map[string]any{"type": "string", "description": "Event title."},
 			"start":       map[string]any{"type": "string", "description": "Start time in RFC3339 format, e.g. 2026-05-27T14:00:00-07:00"},
 			"end":         map[string]any{"type": "string", "description": "End time in RFC3339 format."},
 			"description": map[string]any{"type": "string", "description": "Optional event description."},
 			"location":    map[string]any{"type": "string", "description": "Optional location."},
+			"attendees":   map[string]any{"type": "string", "description": "Comma-separated email addresses to invite, e.g. \"alice@example.com,bob@example.com\""},
 		},
 		Required: []string{"title", "start", "end"},
 	},
@@ -106,6 +107,7 @@ var toolSchemas = []struct {
 			"end":         map[string]any{"type": "string", "description": "New end time in RFC3339 format (leave empty to keep current)."},
 			"description": map[string]any{"type": "string", "description": "New description (leave empty to keep current)."},
 			"location":    map[string]any{"type": "string", "description": "New location (leave empty to keep current)."},
+			"attendees":   map[string]any{"type": "string", "description": "Comma-separated emails to invite or update."},
 		},
 		Required: []string{"event_id"},
 	},
@@ -127,8 +129,9 @@ func buildAgentSystemPrompt(cfg *Config, task *Task, workspace string) string {
 	b.WriteString("- web_search(query)           — search Google and get result titles + URLs\n")
 	b.WriteString("- fetch_page(url, query?)     — fetch a URL and read its content; pair with web_search\n")
 	b.WriteString("- list_calendar_events(days?) — list upcoming Google Calendar events (includes event IDs)\n")
-	b.WriteString("- create_calendar_event(...)  — create a calendar event\n")
+	b.WriteString("- create_calendar_event(title, start, end, attendees?, ...) — creates event + Google Meet link automatically\n")
 	b.WriteString("- update_calendar_event(event_id, ...) — edit an existing event; get event_id from list_calendar_events\n\n")
+	b.WriteString("After any calendar action, always write a response that includes the event title, time, Meet link, and who was invited.\n\n")
 
 	b.WriteString("**Rules:**\n")
 	b.WriteString("- Always call tools to gather information before writing your response. Do not guess.\n")
