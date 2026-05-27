@@ -135,7 +135,7 @@ func buildAgentSystemPrompt(cfg *Config, task *Task, workspace string) string {
 
 	b.WriteString("**Rules:**\n")
 	b.WriteString("- Always call tools to gather information before writing your response. Do not guess.\n")
-	b.WriteString("- For code tasks: create_directory(\"<project-name>\"), then write files inside it.\n")
+	b.WriteString("- For code tasks: create_directory(\"projects/<project-name>\"), then write files inside it.\n")
 	b.WriteString("- Paths outside the workspace are blocked; adjust and continue if denied.\n\n")
 
 	b.WriteString("**Current task:**\n")
@@ -147,7 +147,7 @@ func buildAgentSystemPrompt(cfg *Config, task *Task, workspace string) string {
 	b.WriteString("Complete the task using tools, then write a clear summary.\n")
 	b.WriteString("At the end of your final response, list any files you wrote:\n\n")
 	b.WriteString("<!-- task-agent-files\n")
-	b.WriteString("my-project/main.go\n")
+	b.WriteString("projects/my-project/main.go\n")
 	b.WriteString("-->\n")
 
 	if cfg.EmailMode != EmailModeSummaryOnly {

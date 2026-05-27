@@ -509,15 +509,26 @@ func renderEmailDraft(d *EmailDraft) string {
 // ── file loading ──────────────────────────────────────────────────────────────
 
 func readFile(path, workDir string) (string, error) {
-	// try as-is
+	// try as-is (absolute path)
 	if data, err := os.ReadFile(path); err == nil {
 		return string(data), nil
 	}
 	// try relative to workDir
 	joined := filepath.Join(workDir, path)
-	data, err := os.ReadFile(joined)
-	if err != nil {
-		return "", fmt.Errorf("%s: %w", joined, err)
+	if data, err := os.ReadFile(joined); err == nil {
+		return string(data), nil
 	}
-	return string(data), nil
+	// workDir may already end with "projects/" while the stored path starts
+	// with "projects/", producing a doubled segment — strip it and retry.
+	base := filepath.Base(filepath.Clean(workDir))
+	stripped := path
+	if base == "projects" && strings.HasPrefix(path, "projects/") {
+		stripped = path[len("projects/"):]
+	}
+	if stripped != path {
+		if data, err := os.ReadFile(filepath.Join(workDir, stripped)); err == nil {
+			return string(data), nil
+		}
+	}
+	return "", fmt.Errorf("%s: no such file", joined)
 }
