@@ -253,32 +253,98 @@ func (e *Executor) updateCalendarEvent(eventID, title, start, end, description, 
 		return "", fmt.Errorf("calendar: %w", err)
 	}
 
-	patch := map[string]any{}
+	// GET the current event so we can merge rather than overwrite fields.
+	var current struct {
+		Summary     string `json:"summary"`
+		Description string `json:"description"`
+		Location    string `json:"location"`
+		Start       struct {
+			DateTime string `json:"dateTime"`
+			TimeZone string `json:"timeZone"`
+			Date     string `json:"date"`
+		} `json:"start"`
+		End struct {
+			DateTime string `json:"dateTime"`
+			TimeZone string `json:"timeZone"`
+			Date     string `json:"date"`
+		} `json:"end"`
+		Attendees []struct {
+			Email          string `json:"email"`
+			Organizer      bool   `json:"organizer"`
+			Self           bool   `json:"self"`
+			ResponseStatus string `json:"responseStatus"`
+		} `json:"attendees"`
+		HtmlLink string `json:"htmlLink"`
+	}
+	if err := calendarGet(token, "calendars/primary/events/"+eventID, &current); err != nil {
+		return "", fmt.Errorf("could not fetch event: %w", err)
+	}
+
+	// Build patch from current values, overriding only what was explicitly supplied.
+	patch := map[string]any{
+		"summary": current.Summary,
+	}
 	if title != "" {
 		patch["summary"] = title
 	}
+
+	startDT := current.Start.DateTime
+	startTZ := current.Start.TimeZone
 	if start != "" {
-		patch["start"] = map[string]string{"dateTime": start}
+		startDT = start
 	}
+	if startDT != "" {
+		s := map[string]string{"dateTime": startDT}
+		if startTZ != "" {
+			s["timeZone"] = startTZ
+		}
+		patch["start"] = s
+	} else if current.Start.Date != "" {
+		patch["start"] = map[string]string{"date": current.Start.Date}
+	}
+
+	endDT := current.End.DateTime
+	endTZ := current.End.TimeZone
 	if end != "" {
-		patch["end"] = map[string]string{"dateTime": end}
+		endDT = end
 	}
+	if endDT != "" {
+		e2 := map[string]string{"dateTime": endDT}
+		if endTZ != "" {
+			e2["timeZone"] = endTZ
+		}
+		patch["end"] = e2
+	} else if current.End.Date != "" {
+		patch["end"] = map[string]string{"date": current.End.Date}
+	}
+
 	if description != "" {
 		patch["description"] = description
+	} else if current.Description != "" {
+		patch["description"] = current.Description
 	}
 	if location != "" {
 		patch["location"] = location
+	} else if current.Location != "" {
+		patch["location"] = current.Location
+	}
+
+	// Merge attendees: keep existing list and add new ones.
+	emailSet := map[string]bool{}
+	var mergedAttendees []map[string]string
+	for _, a := range current.Attendees {
+		emailSet[a.Email] = true
+		mergedAttendees = append(mergedAttendees, map[string]string{"email": a.Email})
 	}
 	if attendees != "" {
-		var list []map[string]string
 		for _, email := range strings.Split(attendees, ",") {
-			if email = strings.TrimSpace(email); email != "" {
-				list = append(list, map[string]string{"email": email})
+			if email = strings.TrimSpace(email); email != "" && !emailSet[email] {
+				mergedAttendees = append(mergedAttendees, map[string]string{"email": email})
 			}
 		}
-		if len(list) > 0 {
-			patch["attendees"] = list
-		}
+	}
+	if len(mergedAttendees) > 0 {
+		patch["attendees"] = mergedAttendees
 	}
 
 	body, err := json.Marshal(patch)
@@ -293,5 +359,12 @@ func (e *Executor) updateCalendarEvent(eventID, title, start, end, description, 
 	if err := calendarPatch(token, "calendars/primary/events/"+eventID, body, &updated); err != nil {
 		return "", err
 	}
-	return fmt.Sprintf("Updated event %q — %s", updated.Summary, updated.HtmlLink), nil
+
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "Updated event %q\n", updated.Summary)
+	fmt.Fprintf(&sb, "Calendar link: %s\n", updated.HtmlLink)
+	if attendees != "" {
+		fmt.Fprintf(&sb, "Added attendees: %s\n", attendees)
+	}
+	return strings.TrimSpace(sb.String()), nil
 }
