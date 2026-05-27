@@ -1,6 +1,6 @@
 # task-agent
 
-A terminal task manager with an AI agent backend. Create tasks, chat with an AI agent that can write code and run commands, and manage email replies — all from your terminal.
+A terminal task manager with an AI agent backend. Create tasks, chat with an AI agent that can write code, run commands, search the web, and manage your calendar — all from your terminal.
 
 ![Go](https://img.shields.io/badge/Go-1.21+-00ADD8?logo=go)
 
@@ -9,11 +9,13 @@ A terminal task manager with an AI agent backend. Create tasks, chat with an AI 
 - **Task list** — add, delete, cycle status (todo → in progress → done)
 - **Chat threads** — each task has a comment thread; reply to the agent and it responds
 - **Unread dot** — `●` indicator on tasks with new agent responses
-- **AI agent** — reads your task, uses tools (read/write files, run commands), posts a summary
+- **AI agent** — reads your task, uses tools, posts a summary
 - **File viewer** — agent-written files are linked in the thread; browse and view them in-TUI
 - **Background daemon** — two modes: nightly at 23:00, or responsive (every 5 min)
-- **Email integration** — three modes: summary only / draft for approval / auto-send
-- **No-reply filter** — automatically skips emails from automated senders
+- **Gmail polling** — inbox is polled for new emails; each one becomes a task automatically
+- **Email replies** — three modes: summary only / draft for approval / auto-send
+- **Google Calendar** — agent can list and create calendar events
+- **Web search** — agent searches Google and reads full page content (via [local-search](https://github.com/Pkill-MyDaemons/local-search))
 - **Multi-provider** — Claude, Gemini, Groq, or any local model (Ollama, LM Studio, etc.)
 
 ## Installation
@@ -39,6 +41,7 @@ Requires Go 1.21+.
 | `enter` | Open task thread |
 | `s` | Cycle task status |
 | `d` | Delete task |
+| `R` | Reload tasks from disk |
 | `c` | Open config |
 | `q` | Quit |
 
@@ -49,8 +52,8 @@ Requires Go 1.21+.
 | `r` | Reply / add comment |
 | `j` / `k` | Scroll |
 | `f` | Browse files the agent wrote |
-| `a` | Approve & send pending email draft |
-| `x` | Reject pending email draft |
+| `y` | Approve & send pending email draft |
+| `n` | Edit pending email draft before sending |
 | `esc` | Back to task list |
 
 **File viewer:**
@@ -64,14 +67,14 @@ Requires Go 1.21+.
 
 ### Config (`c` from task list)
 
-- **Daemon mode** — `nightly` (default, runs at 23:00) or `responsive` (every 5 min on new replies)
+- **Daemon mode** — `nightly` (runs at set time) or `responsive` (every 5 min on new replies)
 - **Run at** — time for nightly mode, format `HH:MM`
 - **Provider** — `claude`, `gemini`, `groq`, `local`
 - **Model** — model name for the selected provider
 - **API key** — provider API key
-- **Work dir** — sandbox directory the agent works in (default `~/task-agent-workspace/`)
+- **Work dir** — sandbox directory the agent works in (default `~/.task-agent/projects/`)
 - **Local URL** — base URL for local models (default `http://localhost:11434`)
-- **Email** — SMTP settings and email mode
+- **Email** — mode, provider (SMTP or Gmail OAuth), and credentials
 
 ### Daemon
 
@@ -81,7 +84,7 @@ Start/stop the background daemon from the config screen, or manually:
 ./task-agent --daemon   # run daemon in foreground (for testing)
 ```
 
-The daemon re-execs the binary in the background and saves its PID to `~/.task-agent/daemon.pid`.
+The daemon re-execs the binary in the background and saves its PID to `~/.task-agent/daemon.pid`. Logs are written to `~/.task-agent/daemon.log`.
 
 ## AI Agent
 
@@ -94,8 +97,14 @@ The agent runs an agentic loop (up to 12 tool-call rounds) with these tools:
 | `run_command` | Run a shell command (30s timeout) |
 | `list_files` | List files at a path |
 | `create_directory` | Create a directory |
+| `web_search` | Search Google and return titles, URLs, and snippets |
+| `fetch_page` | Fetch any URL and return its text content |
+| `list_calendar_events` | List upcoming Google Calendar events |
+| `create_calendar_event` | Create a new Google Calendar event |
 
-**Workspace sandbox:** All file operations are confined to the work dir. Sensitive paths (`.ssh`, `.aws`, credentials, etc.) and dangerous commands (`sudo`, `rm -rf /`, etc.) are blocked — the agent is told it was blocked and adjusts.
+`web_search` and `fetch_page` require the [local-search](https://github.com/Pkill-MyDaemons/local-search) server to be running on `localhost:8000`.
+
+**Workspace sandbox:** All file operations are confined to the work dir. Sensitive paths (`.ssh`, `.aws`, credentials, etc.) and dangerous commands (`sudo`, `rm -rf /`, fork bombs, etc.) are blocked.
 
 **Project convention:** The agent creates `projects/<name>/` inside the workspace for code.
 
@@ -104,20 +113,33 @@ The agent runs an agentic loop (up to 12 tool-call rounds) with these tools:
 Set **Email mode** in config:
 
 - **Summary only** — agent posts a summary comment, no draft generated
-- **Draft + wait** — agent drafts a reply; use `a` to approve/send or `x` to reject
-- **Auto send** — agent drafts and sends immediately via SMTP
+- **Draft + wait** — agent drafts a reply; press `y` to send or `n` to edit before sending
+- **Auto send** — agent drafts and sends immediately
 
-Configure SMTP host, port, from address, and credentials in the Email section of config. Port 465 uses implicit TLS (SMTPS); all other ports use STARTTLS.
+### Gmail OAuth
+
+Set **Email provider** to `gmail`, enter your OAuth client ID and secret, then authenticate from the config screen. The agent will poll your primary inbox and create tasks from incoming emails, skipping no-reply senders, bulk mail, and anything with a `List-Unsubscribe` header.
+
+### SMTP
+
+Configure host, port, from address, and credentials. Port 465 uses implicit TLS; all other ports use STARTTLS.
+
+## Google Calendar
+
+Requires Gmail OAuth to be set up (the Calendar scope is requested at the same time). Once authenticated, the agent can read your upcoming events and create new ones.
 
 ## Data storage
 
 All data lives in `~/.task-agent/`:
 
-| File | Contents |
+| Path | Contents |
 |------|----------|
 | `tasks.json` | All tasks and comment threads |
 | `config.json` | Settings (API keys, SMTP, etc.) — mode `0600` |
 | `daemon.pid` | PID of the running daemon |
+| `daemon.log` | Daemon activity log |
+| `gmail_seen.json` | Gmail message IDs already processed |
+| `projects/` | Default agent workspace |
 
 ## Providers
 
