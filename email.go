@@ -206,6 +206,18 @@ func isNoReplySender(task *Task) bool {
 	return false
 }
 
+// emailSender extracts the sender address from the "From:" line in a task
+// description, returning "" if none is found.
+func emailSender(task *Task) string {
+	for _, line := range strings.Split(task.Description, "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(strings.ToLower(line), "from:") {
+			return strings.TrimSpace(line[5:])
+		}
+	}
+	return ""
+}
+
 // parseEmailDraft extracts a <!-- task-agent-email ... --> block from raw text.
 // The block format is:
 //

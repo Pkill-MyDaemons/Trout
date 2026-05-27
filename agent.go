@@ -31,6 +31,7 @@ func processTask(cfg *Config, task *Task, store *Store) {
 			fmt.Sprintf("*Could not set up workspace: %s*", err), nil, nil)
 		return
 	}
+	exec.cfg = cfg
 
 	raw, files, err := callLLMLoop(cfg, task, exec)
 	if err != nil {

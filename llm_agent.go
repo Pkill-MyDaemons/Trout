@@ -59,34 +59,83 @@ var toolSchemas = []struct {
 		},
 		Required: []string{"path"},
 	},
+	{
+		Name:        "fetch_page",
+		Description: "Fetch any URL and return its text content. Optionally filter by a query to return only the most relevant chunks. Results are cached locally for 6 hours.",
+		Properties: map[string]any{
+			"url":   map[string]any{"type": "string", "description": "The URL to fetch, e.g. https://en.wikipedia.org/wiki/SQLite"},
+			"query": map[string]any{"type": "string", "description": "Optional: search term to filter the page content to the most relevant sections."},
+		},
+		Required: []string{"url"},
+	},
+	{
+		Name:        "list_calendar_events",
+		Description: "List upcoming Google Calendar events. Returns start time, title, location, and description.",
+		Properties: map[string]any{
+			"days": map[string]any{"type": "integer", "description": "How many days ahead to look. Defaults to 7."},
+		},
+		Required: []string{},
+	},
+	{
+		Name:        "create_calendar_event",
+		Description: "Create a new Google Calendar event.",
+		Properties: map[string]any{
+			"title":       map[string]any{"type": "string", "description": "Event title."},
+			"start":       map[string]any{"type": "string", "description": "Start time in RFC3339 format, e.g. 2026-05-27T14:00:00-07:00"},
+			"end":         map[string]any{"type": "string", "description": "End time in RFC3339 format."},
+			"description": map[string]any{"type": "string", "description": "Optional event description."},
+			"location":    map[string]any{"type": "string", "description": "Optional location."},
+		},
+		Required: []string{"title", "start", "end"},
+	},
 }
 
 // ── system prompt ─────────────────────────────────────────────────────────────
 
 func buildAgentSystemPrompt(cfg *Config, task *Task, workspace string) string {
 	var b strings.Builder
-	b.WriteString("You are a task agent helping a software developer.\n\n")
-	fmt.Fprintf(&b, "You have a sandboxed workspace at: %s\n", workspace)
-	b.WriteString("You may freely read/write files and run commands there.\n\n")
+	b.WriteString("You are a task agent. You MUST use tools to act — do not just describe what you would do.\n\n")
+	fmt.Fprintf(&b, "Workspace: %s\n\n", workspace)
+
+	b.WriteString("**Available tools — call them freely:**\n")
+	b.WriteString("- read_file(path)            — read a file\n")
+	b.WriteString("- write_file(path, content)  — write or create a file\n")
+	b.WriteString("- run_command(command)        — run a shell command (30s timeout)\n")
+	b.WriteString("- list_files(path)            — list directory contents\n")
+	b.WriteString("- create_directory(path)      — create a directory\n")
+	b.WriteString("- fetch_page(url, query?)     — fetch any URL and read its content; use for web research\n")
+	b.WriteString("- list_calendar_events(days?) — list upcoming Google Calendar events\n")
+	b.WriteString("- create_calendar_event(...)  — create a calendar event\n\n")
+
 	b.WriteString("**Rules:**\n")
-	b.WriteString("- When writing code, first create a project folder: create_directory(\"projects/<project-name>\")\n")
-	b.WriteString("- Keep all project files inside that folder.\n")
-	b.WriteString("- Paths outside the workspace are blocked; if blocked, adjust and continue.\n\n")
+	b.WriteString("- Always call tools to gather information before writing your response. Do not guess.\n")
+	b.WriteString("- For code tasks: create_directory(\"projects/<name>\"), then write files inside it.\n")
+	b.WriteString("- Paths outside the workspace are blocked; adjust and continue if denied.\n\n")
+
 	b.WriteString("**Current task:**\n")
 	fmt.Fprintf(&b, "Title: %s\n", task.Title)
 	if task.Description != "" {
 		fmt.Fprintf(&b, "Description: %s\n", task.Description)
 	}
 	fmt.Fprintf(&b, "Status: %s\n\n", statusLabel(task.Status))
-	b.WriteString("Use tools to complete the task, then write a clear summary.\n")
+	b.WriteString("Complete the task using tools, then write a clear summary.\n")
 	b.WriteString("At the end of your final response, list any files you wrote:\n\n")
 	b.WriteString("<!-- task-agent-files\n")
 	b.WriteString("projects/my-project/main.go\n")
 	b.WriteString("-->\n")
 
 	if cfg.EmailMode != EmailModeSummaryOnly {
-		b.WriteString("\n**Email replies:**\n")
-		b.WriteString("If this task involves an email that needs a reply, append a draft using:\n\n")
+		sender := emailSender(task)
+		if sender != "" {
+			// Task came from an email — make the reply requirement explicit.
+			b.WriteString("\n**This task was created from an incoming email.**\n")
+			fmt.Fprintf(&b, "You MUST write a reply to: %s\n", sender)
+			fmt.Fprintf(&b, "Subject line should be: Re: %s\n", task.Title)
+			b.WriteString("Append the reply draft at the end of your response using exactly this format:\n\n")
+		} else {
+			b.WriteString("\n**Email replies:**\n")
+			b.WriteString("If this task involves an email that needs a reply, append a draft using:\n\n")
+		}
 		b.WriteString("<!-- task-agent-email\n")
 		b.WriteString("to: sender@example.com\n")
 		b.WriteString("subject: Re: Original Subject\n")

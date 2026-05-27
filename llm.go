@@ -71,11 +71,12 @@ func parseAgentResponse(raw string) (body string, files []string) {
 	if idx == -1 {
 		return strings.TrimSpace(raw), nil
 	}
-	body = strings.TrimSpace(raw[:idx])
+	before := strings.TrimSpace(raw[:idx])
 	rest := raw[idx+len(start):]
 	closeIdx := strings.Index(rest, end)
 	if closeIdx == -1 {
-		return body, nil
+		body = before
+		return
 	}
 	section := strings.TrimSpace(rest[:closeIdx])
 	for _, line := range strings.Split(section, "\n") {
@@ -83,6 +84,13 @@ func parseAgentResponse(raw string) (body string, files []string) {
 		if line != "" {
 			files = append(files, line)
 		}
+	}
+	// anything after the closing --> (e.g. an email draft block) must be preserved
+	after := strings.TrimSpace(rest[closeIdx+len(end):])
+	if after != "" {
+		body = before + "\n\n" + after
+	} else {
+		body = before
 	}
 	return
 }

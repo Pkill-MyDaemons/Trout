@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"fmt"
+	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -36,6 +38,7 @@ var dangerousCmds = []string{
 type Executor struct {
 	workspace string
 	written   []string // files written this session
+	cfg       *Config
 }
 
 func newExecutor(workspace string) (*Executor, error) {
@@ -94,6 +97,16 @@ func (e *Executor) Dispatch(name string, input map[string]any) (string, error) {
 		return e.listFiles(str("path"))
 	case "create_directory":
 		return e.createDirectory(str("path"))
+	case "fetch_page":
+		return e.fetchPage(str("url"), str("query"))
+	case "list_calendar_events":
+		days := 7
+		if v, ok := input["days"].(float64); ok && v > 0 {
+			days = int(v)
+		}
+		return e.listCalendarEvents(days)
+	case "create_calendar_event":
+		return e.createCalendarEvent(str("title"), str("start"), str("end"), str("description"), str("location"))
 	default:
 		return "", fmt.Errorf("unknown tool: %q", name)
 	}
@@ -198,6 +211,47 @@ func (e *Executor) createDirectory(path string) (string, error) {
 		return "", err
 	}
 	return "created: " + path, nil
+}
+
+// fetchPage asks the local-search server to fetch a URL and return relevant
+// chunks. query is optional — if empty, the first few chunks are returned.
+func (e *Executor) fetchPage(pageURL, query string) (string, error) {
+	if pageURL == "" {
+		return "", fmt.Errorf("url is required")
+	}
+
+	reqURL := "http://localhost:8000/fetch?format=llm&limit=5&url=" + url.QueryEscape(pageURL)
+	if query != "" {
+		reqURL += "&q=" + url.QueryEscape(query)
+	}
+
+	req, err := http.NewRequest("GET", reqURL, nil)
+	if err != nil {
+		return "", err
+	}
+
+	client := &http.Client{Timeout: 20 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("local-search server not reachable (run ./start.sh in ~/Developer/local-search): %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 300 {
+		return "", fmt.Errorf("fetch_page: status %d", resp.StatusCode)
+	}
+
+	var buf strings.Builder
+	tmp := make([]byte, 4096)
+	for {
+		n, readErr := resp.Body.Read(tmp)
+		if n > 0 {
+			buf.Write(tmp[:n])
+		}
+		if readErr != nil {
+			break
+		}
+	}
+	return strings.TrimSpace(buf.String()), nil
 }
 
 // checkCmdPaths is a best-effort scan that blocks absolute paths outside workspace in commands.
