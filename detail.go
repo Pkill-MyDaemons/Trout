@@ -17,10 +17,11 @@ import (
 type sv int
 
 const (
-	svThread  sv = iota
+	svThread    sv = iota
 	svReply
 	svFilePick
 	svFile
+	svEditDraft
 )
 
 type detailModel struct {
@@ -78,12 +79,19 @@ func (m detailModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.keyFilePick(msg)
 		case svFile:
 			return m.keyFile(msg)
+		case svEditDraft:
+			return m.keyEditDraft(msg)
 		}
 	}
 
 	if m.view == svThread || m.view == svFile {
 		var cmd tea.Cmd
 		m.vp, cmd = m.vp.Update(msg)
+		return m, cmd
+	}
+	if m.view == svReply || m.view == svEditDraft {
+		var cmd tea.Cmd
+		m.reply, cmd = m.reply.Update(msg)
 		return m, cmd
 	}
 	return m, nil
@@ -107,7 +115,7 @@ func (m detailModel) keyThread(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.view = svFilePick
 			m.fileCursor = 0
 		}
-	case "a":
+	case "y":
 		if draft := m.store.pendingDraft(m.task.ID); draft != nil {
 			cfg, _ := loadConfig()
 			if err := sendEmail(cfg, draft); err != nil {
@@ -118,11 +126,12 @@ func (m detailModel) keyThread(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m = m.refreshViewport()
 			}
 		}
-	case "x":
+	case "n":
 		if draft := m.store.pendingDraft(m.task.ID); draft != nil {
-			m.store.updateEmailDraft(m.task.ID, "rejected")
-			m.statusMsg = "Draft rejected."
-			m = m.refreshViewport()
+			m.reply.SetValue(draft.Body)
+			m.reply.Focus()
+			m.view = svEditDraft
+			return m, textarea.Blink
 		}
 	case "up", "k":
 		m.vp.LineUp(3)
@@ -199,6 +208,36 @@ func (m detailModel) keyFile(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
+func (m detailModel) keyEditDraft(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc":
+		m.view = svThread
+		m.reply.Blur()
+		return m, nil
+	case "ctrl+c":
+		return m, tea.Quit
+	case "ctrl+s":
+		draft := m.store.pendingDraft(m.task.ID)
+		if draft != nil {
+			draft.Body = m.reply.Value()
+			cfg, _ := loadConfig()
+			if err := sendEmail(cfg, draft); err != nil {
+				m.statusMsg = "send failed: " + err.Error()
+			} else {
+				m.store.updateEmailDraft(m.task.ID, "sent")
+				m.statusMsg = "Email sent to " + draft.To
+				m = m.refreshViewport()
+			}
+		}
+		m.view = svThread
+		m.reply.Blur()
+		return m, nil
+	}
+	var cmd tea.Cmd
+	m.reply, cmd = m.reply.Update(msg)
+	return m, cmd
+}
+
 func (m detailModel) refreshViewport() detailModel {
 	m.vp.SetContent(renderThread(m.task, m.width-4))
 	return m
@@ -258,6 +297,8 @@ func (m detailModel) View() string {
 		return m.viewFileContent()
 	case svReply:
 		return m.viewWithReply()
+	case svEditDraft:
+		return m.viewEditDraft()
 	default:
 		return m.viewThread()
 	}
@@ -271,7 +312,7 @@ func (m detailModel) viewThread() string {
 	}
 	emailHint := ""
 	if m.store.pendingDraft(m.task.ID) != nil {
-		emailHint = "  •  " + lipgloss.NewStyle().Foreground(colorUnread).Bold(true).Render("a send  x reject")
+		emailHint = "  •  " + lipgloss.NewStyle().Foreground(colorUnread).Bold(true).Render("y send  n edit")
 	}
 	help := styleHelp.Render("r reply  •  j/k scroll"+fileHint) + emailHint + styleHelp.Render("  •  esc back")
 
@@ -289,6 +330,20 @@ func (m detailModel) viewWithReply() string {
 	return lipgloss.NewStyle().Padding(1, 2).Render(
 		m.taskHeader() + "\n" + m.divider() + "\n" + m.vp.View() +
 			"\n" + m.reply.View() + "\n" + help,
+	)
+}
+
+func (m detailModel) viewEditDraft() string {
+	draft := m.store.pendingDraft(m.task.ID)
+	header := ""
+	if draft != nil {
+		header = styleMuted.Render("To: ") + draft.To +
+			"  " + styleMuted.Render("Subject: ") + draft.Subject + "\n"
+	}
+	help := styleHelp.Render("ctrl+s send  •  esc cancel")
+	return lipgloss.NewStyle().Padding(1, 2).Render(
+		m.taskHeader() + "\n" + m.divider() + "\n" +
+			header + m.reply.View() + "\n" + help,
 	)
 }
 
