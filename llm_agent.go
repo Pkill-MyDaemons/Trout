@@ -60,6 +60,14 @@ var toolSchemas = []struct {
 		Required: []string{"path"},
 	},
 	{
+		Name:        "web_search",
+		Description: "Search Google and return the top results (title, URL, snippet). Use this to discover relevant URLs, then call fetch_page to read the full content.",
+		Properties: map[string]any{
+			"query": map[string]any{"type": "string", "description": "Search query, e.g. \"golang http server example\""},
+		},
+		Required: []string{"query"},
+	},
+	{
 		Name:        "fetch_page",
 		Description: "Fetch any URL and return its text content. Optionally filter by a query to return only the most relevant chunks. Results are cached locally for 6 hours.",
 		Properties: map[string]any{
@@ -103,7 +111,8 @@ func buildAgentSystemPrompt(cfg *Config, task *Task, workspace string) string {
 	b.WriteString("- run_command(command)        — run a shell command (30s timeout)\n")
 	b.WriteString("- list_files(path)            — list directory contents\n")
 	b.WriteString("- create_directory(path)      — create a directory\n")
-	b.WriteString("- fetch_page(url, query?)     — fetch any URL and read its content; use for web research\n")
+	b.WriteString("- web_search(query)           — search Google and get result titles + URLs\n")
+	b.WriteString("- fetch_page(url, query?)     — fetch a URL and read its content; pair with web_search\n")
 	b.WriteString("- list_calendar_events(days?) — list upcoming Google Calendar events\n")
 	b.WriteString("- create_calendar_event(...)  — create a calendar event\n\n")
 

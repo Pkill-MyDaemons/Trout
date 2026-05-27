@@ -97,6 +97,8 @@ func (e *Executor) Dispatch(name string, input map[string]any) (string, error) {
 		return e.listFiles(str("path"))
 	case "create_directory":
 		return e.createDirectory(str("path"))
+	case "web_search":
+		return e.googleSearch(str("query"))
 	case "fetch_page":
 		return e.fetchPage(str("url"), str("query"))
 	case "list_calendar_events":
@@ -211,6 +213,43 @@ func (e *Executor) createDirectory(path string) (string, error) {
 		return "", err
 	}
 	return "created: " + path, nil
+}
+
+// googleSearch constructs a Google search URL, scrapes the results page via the
+// local-search server, and returns titles/URLs/snippets for the top results.
+func (e *Executor) googleSearch(query string) (string, error) {
+	if query == "" {
+		return "", fmt.Errorf("query is required")
+	}
+
+	reqURL := "http://localhost:8000/search/web?format=llm&q=" + url.QueryEscape(query)
+	req, err := http.NewRequest("GET", reqURL, nil)
+	if err != nil {
+		return "", err
+	}
+
+	client := &http.Client{Timeout: 15 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("local-search server not reachable (run ./start.sh in ~/Developer/local-search): %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 300 {
+		return "", fmt.Errorf("web_search: status %d", resp.StatusCode)
+	}
+
+	var buf strings.Builder
+	tmp := make([]byte, 4096)
+	for {
+		n, readErr := resp.Body.Read(tmp)
+		if n > 0 {
+			buf.Write(tmp[:n])
+		}
+		if readErr != nil {
+			break
+		}
+	}
+	return strings.TrimSpace(buf.String()), nil
 }
 
 // fetchPage asks the local-search server to fetch a URL and return relevant
