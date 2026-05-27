@@ -96,6 +96,19 @@ var toolSchemas = []struct {
 		},
 		Required: []string{"title", "start", "end"},
 	},
+	{
+		Name:        "update_calendar_event",
+		Description: "Edit an existing Google Calendar event. Get the event_id from list_calendar_events. Only fields you provide are changed.",
+		Properties: map[string]any{
+			"event_id":    map[string]any{"type": "string", "description": "Event ID from list_calendar_events."},
+			"title":       map[string]any{"type": "string", "description": "New title (leave empty to keep current)."},
+			"start":       map[string]any{"type": "string", "description": "New start time in RFC3339 format (leave empty to keep current)."},
+			"end":         map[string]any{"type": "string", "description": "New end time in RFC3339 format (leave empty to keep current)."},
+			"description": map[string]any{"type": "string", "description": "New description (leave empty to keep current)."},
+			"location":    map[string]any{"type": "string", "description": "New location (leave empty to keep current)."},
+		},
+		Required: []string{"event_id"},
+	},
 }
 
 // ── system prompt ─────────────────────────────────────────────────────────────
@@ -113,8 +126,9 @@ func buildAgentSystemPrompt(cfg *Config, task *Task, workspace string) string {
 	b.WriteString("- create_directory(path)      — create a directory\n")
 	b.WriteString("- web_search(query)           — search Google and get result titles + URLs\n")
 	b.WriteString("- fetch_page(url, query?)     — fetch a URL and read its content; pair with web_search\n")
-	b.WriteString("- list_calendar_events(days?) — list upcoming Google Calendar events\n")
-	b.WriteString("- create_calendar_event(...)  — create a calendar event\n\n")
+	b.WriteString("- list_calendar_events(days?) — list upcoming Google Calendar events (includes event IDs)\n")
+	b.WriteString("- create_calendar_event(...)  — create a calendar event\n")
+	b.WriteString("- update_calendar_event(event_id, ...) — edit an existing event; get event_id from list_calendar_events\n\n")
 
 	b.WriteString("**Rules:**\n")
 	b.WriteString("- Always call tools to gather information before writing your response. Do not guess.\n")

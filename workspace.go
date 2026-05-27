@@ -109,6 +109,8 @@ func (e *Executor) Dispatch(name string, input map[string]any) (string, error) {
 		return e.listCalendarEvents(days)
 	case "create_calendar_event":
 		return e.createCalendarEvent(str("title"), str("start"), str("end"), str("description"), str("location"))
+	case "update_calendar_event":
+		return e.updateCalendarEvent(str("event_id"), str("title"), str("start"), str("end"), str("description"), str("location"))
 	default:
 		return "", fmt.Errorf("unknown tool: %q", name)
 	}

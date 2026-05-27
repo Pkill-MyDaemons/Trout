@@ -34,6 +34,32 @@ func calendarGet(token, path string, out interface{}) error {
 	return json.NewDecoder(resp.Body).Decode(out)
 }
 
+func calendarPatch(token, path string, body []byte, out interface{}) error {
+	req, err := http.NewRequest("PATCH", "https://www.googleapis.com/calendar/v3/"+path, bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	client := &http.Client{Timeout: 15 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 300 {
+		var errBody struct {
+			Error struct{ Message string `json:"message"` } `json:"error"`
+		}
+		json.NewDecoder(resp.Body).Decode(&errBody) //nolint:errcheck
+		if errBody.Error.Message != "" {
+			return fmt.Errorf("calendar api: %s", errBody.Error.Message)
+		}
+		return fmt.Errorf("calendar api: status %d", resp.StatusCode)
+	}
+	return json.NewDecoder(resp.Body).Decode(out)
+}
+
 func calendarPost(token, path string, body []byte, out interface{}) error {
 	req, err := http.NewRequest("POST", "https://www.googleapis.com/calendar/v3/"+path, bytes.NewReader(body))
 	if err != nil {
@@ -75,6 +101,7 @@ func (e *Executor) listCalendarEvents(days int) (string, error) {
 
 	var result struct {
 		Items []struct {
+			ID          string `json:"id"`
 			Summary     string `json:"summary"`
 			Description string `json:"description"`
 			Location    string `json:"location"`
@@ -118,7 +145,7 @@ func (e *Executor) listCalendarEvents(days int) (string, error) {
 				end = t.Format("3:04 PM")
 			}
 		}
-		fmt.Fprintf(&sb, "• %s — %s to %s", ev.Summary, start, end)
+		fmt.Fprintf(&sb, "• [id:%s] %s — %s to %s", ev.ID, ev.Summary, start, end)
 		if ev.Location != "" {
 			fmt.Fprintf(&sb, " @ %s", ev.Location)
 		}
@@ -169,4 +196,48 @@ func (e *Executor) createCalendarEvent(title, start, end, description, location 
 		return "", err
 	}
 	return fmt.Sprintf("Created event %q — %s", created.Summary, created.HtmlLink), nil
+}
+
+func (e *Executor) updateCalendarEvent(eventID, title, start, end, description, location string) (string, error) {
+	if e.cfg == nil {
+		return "", fmt.Errorf("no config available")
+	}
+	if eventID == "" {
+		return "", fmt.Errorf("event_id is required — use list_calendar_events to find it")
+	}
+	token, err := getValidAccessToken(e.cfg)
+	if err != nil {
+		return "", fmt.Errorf("calendar: %w", err)
+	}
+
+	patch := map[string]any{}
+	if title != "" {
+		patch["summary"] = title
+	}
+	if start != "" {
+		patch["start"] = map[string]string{"dateTime": start}
+	}
+	if end != "" {
+		patch["end"] = map[string]string{"dateTime": end}
+	}
+	if description != "" {
+		patch["description"] = description
+	}
+	if location != "" {
+		patch["location"] = location
+	}
+
+	body, err := json.Marshal(patch)
+	if err != nil {
+		return "", err
+	}
+
+	var updated struct {
+		Summary  string `json:"summary"`
+		HtmlLink string `json:"htmlLink"`
+	}
+	if err := calendarPatch(token, "calendars/primary/events/"+eventID, body, &updated); err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("Updated event %q — %s", updated.Summary, updated.HtmlLink), nil
 }
