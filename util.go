@@ -8,6 +8,7 @@ import (
 	"time"
 )
 
+
 func newID() string {
 	b := make([]byte, 4)
 	rand.Read(b)
@@ -27,3 +28,12 @@ func dataPath(name string) string {
 }
 
 func nowTime() time.Time { return time.Now() }
+
+func daemonLog(format string, args ...any) {
+	f, err := os.OpenFile(dataPath("daemon.log"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0600)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	fmt.Fprintf(f, "[%s] %s\n", time.Now().Format(time.RFC3339), fmt.Sprintf(format, args...))
+}

@@ -81,6 +81,7 @@ func runDaemonLoop(cfg *Config) {
 
 func runResponsive(cfg *Config, sigs chan os.Signal) {
     tick := func() {
+        daemonLog("tick")
         fresh, err := loadConfig()
         if err != nil {
             fmt.Fprintf(os.Stderr, "Error loading config: %v\n", err)
@@ -93,6 +94,7 @@ func runResponsive(cfg *Config, sigs chan os.Signal) {
         }
 
         if err := pollGmailInbox(fresh, store); err != nil {
+            daemonLog("gmail poll error: %v", err)
             fmt.Fprintf(os.Stderr, "gmail poll: %v\n", err)
         }
 

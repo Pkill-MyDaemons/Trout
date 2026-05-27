@@ -162,6 +162,8 @@ func pollGmailInbox(cfg *Config, store *Store) error {
 	if err := gmailGet(token, "messages?q=is:unread+in:inbox&maxResults=20", &list); err != nil {
 		return fmt.Errorf("gmail poll list: %w", err)
 	}
+	daemonLog("gmail poll: %d unread message(s) found", len(list.Messages))
+
 	if len(list.Messages) == 0 {
 		return nil
 	}
@@ -175,11 +177,19 @@ func pollGmailInbox(cfg *Config, store *Store) error {
 		}
 		var msg gmailMessage
 		if err := gmailGet(token, "messages/"+m.ID+"?format=full", &msg); err != nil {
+			daemonLog("gmail poll: fetch message %s: %v", m.ID, err)
 			continue
 		}
 
 		from := gmailHeader(msg, "from")
 		if isNoReplyAddress(from) {
+			daemonLog("gmail poll: skipping no-reply from %s", from)
+			seen[m.ID] = true
+			changed = true
+			continue
+		}
+		if gmailHeader(msg, "list-unsubscribe") != "" {
+			daemonLog("gmail poll: skipping bulk/marketing from %s", from)
 			seen[m.ID] = true
 			changed = true
 			continue
@@ -193,6 +203,7 @@ func pollGmailInbox(cfg *Config, store *Store) error {
 		description := fmt.Sprintf("From: %s\n\n%s", from, body)
 
 		store.addTask(subject, description)
+		daemonLog("gmail poll: created task %q from %s", subject, from)
 		_ = gmailMarkRead(token, m.ID)
 
 		seen[m.ID] = true
