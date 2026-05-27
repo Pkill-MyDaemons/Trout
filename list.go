@@ -121,6 +121,14 @@ func (m listModel) updateList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			_ = saveStore(m.store)
 		}
 
+	case "R":
+		if fresh, err := loadStore(); err == nil {
+			m.store = fresh
+			if m.cursor >= len(m.store.Tasks) && m.cursor > 0 {
+				m.cursor = len(m.store.Tasks) - 1
+			}
+		}
+
 	case "c":
 		cfg, _ := loadConfig()
 		if cfg == nil {
@@ -238,7 +246,7 @@ func (m listModel) renderList() string {
 		rows = append(rows, styleMuted.Render("  No tasks yet. Press n to add one."))
 	}
 
-	help := styleHelp.Render("n new  •  enter open  •  s cycle status  •  d delete  •  c config  •  q quit")
+	help := styleHelp.Render("n new  •  enter open  •  s cycle status  •  d delete  •  R reload  •  c config  •  q quit")
 
 	content := header + "\n\n" + strings.Join(rows, "\n") + "\n\n" + help
 	return lipgloss.NewStyle().Padding(1, 2).Render(content)

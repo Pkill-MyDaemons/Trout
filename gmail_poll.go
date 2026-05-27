@@ -159,7 +159,7 @@ func pollGmailInbox(cfg *Config, store *Store) error {
 	}
 
 	var list gmailListResponse
-	if err := gmailGet(token, "messages?q=is:unread+in:inbox&maxResults=20", &list); err != nil {
+	if err := gmailGet(token, "messages?q=is:unread+in:inbox+category:primary&maxResults=20", &list); err != nil {
 		return fmt.Errorf("gmail poll list: %w", err)
 	}
 	daemonLog("gmail poll: %d unread message(s) found", len(list.Messages))
