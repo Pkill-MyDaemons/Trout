@@ -15,7 +15,7 @@ A terminal task manager with an AI agent backend. Create tasks, chat with an AI 
 - **Gmail polling** — inbox is polled for new emails; each one becomes a task automatically
 - **Email replies** — three modes: summary only / draft for approval / auto-send
 - **Google Calendar** — agent can list and create calendar events
-- **Web search** — agent searches Google and reads full page content (via [local-search](https://github.com/Pkill-MyDaemons/local-search))
+- **Web search** — agent searches Google and reads full page content (via [Flounder](https://github.com/Pkill-MyDaemons/Flounder))
 - **Multi-provider** — Claude, Gemini, Groq, or any local model (Ollama, LM Studio, etc.)
 
 ## Installation
