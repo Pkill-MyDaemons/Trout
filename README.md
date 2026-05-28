@@ -1,4 +1,4 @@
-# task-agent
+# Trout
 
 A terminal task manager with an AI agent backend. Create tasks, chat with an AI agent that can write code, run commands, search the web, and manage your calendar — all from your terminal.
 
@@ -21,10 +21,10 @@ A terminal task manager with an AI agent backend. Create tasks, chat with an AI 
 ## Installation
 
 ```bash
-git clone https://github.com/Pkill-MyDaemons/task-agent
-cd task-agent
-go build -o task-agent .
-./task-agent
+git clone https://github.com/Pkill-MyDaemons/trout
+cd trout
+go build -o trout .
+./trout
 ```
 
 Requires Go 1.21+.
@@ -72,7 +72,7 @@ Requires Go 1.21+.
 - **Provider** — `claude`, `gemini`, `groq`, `local`
 - **Model** — model name for the selected provider
 - **API key** — provider API key
-- **Work dir** — sandbox directory the agent works in (default `~/.task-agent/projects/`)
+- **Work dir** — sandbox directory the agent works in (default `~/.trout/projects/`)
 - **Local URL** — base URL for local models (default `http://localhost:11434`)
 - **Email** — mode, provider (SMTP or Gmail OAuth), and credentials
 
@@ -81,10 +81,10 @@ Requires Go 1.21+.
 Start/stop the background daemon from the config screen, or manually:
 
 ```bash
-./task-agent --daemon   # run daemon in foreground (for testing)
+./trout --daemon   # run daemon in foreground (for testing)
 ```
 
-The daemon re-execs the binary in the background and saves its PID to `~/.task-agent/daemon.pid`. Logs are written to `~/.task-agent/daemon.log`.
+The daemon re-execs the binary in the background and saves its PID to `~/.trout/daemon.pid`. Logs are written to `~/.trout/daemon.log`.
 
 ## AI Agent
 
@@ -130,7 +130,7 @@ Requires Gmail OAuth to be set up (the Calendar scope is requested at the same t
 
 ## Data storage
 
-All data lives in `~/.task-agent/`:
+All data lives in `~/.trout/`:
 
 | Path | Contents |
 |------|----------|
