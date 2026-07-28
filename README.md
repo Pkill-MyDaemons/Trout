@@ -15,13 +15,13 @@ A terminal task manager with an AI agent backend. Create tasks, chat with an AI 
 - **Gmail polling** — inbox is polled for new emails; each one becomes a task automatically
 - **Email replies** — three modes: summary only / draft for approval / auto-send
 - **Google Calendar** — agent can list and create calendar events
-- **Web search** — agent searches Google and reads full page content (via [Flounder](https://github.com/Pkill-MyDaemons/Flounder))
+- **Web search** — agent searches Google and reads full page content (via [Flounder](https://github.com/ByteTheBait/Flounder))
 - **Multi-provider** — Claude, Gemini, Groq, or any local model (Ollama, LM Studio, etc.)
 
 ## Installation
 
 ```bash
-git clone https://github.com/Pkill-MyDaemons/trout
+git clone https://github.com/ByteTheBait/trout
 cd trout
 go build -o trout .
 ./trout
@@ -102,7 +102,7 @@ The agent runs an agentic loop (up to 12 tool-call rounds) with these tools:
 | `list_calendar_events` | List upcoming Google Calendar events |
 | `create_calendar_event` | Create a new Google Calendar event |
 
-`web_search` and `fetch_page` require the [flounder](https://github.com/Pkill-MyDaemons/flounder) server to be running on `localhost:8000`.
+`web_search` and `fetch_page` require the [flounder](https://github.com/ByteTheBait/flounder) server to be running on `localhost:8000`.
 
 **Workspace sandbox:** All file operations are confined to the work dir. Sensitive paths (`.ssh`, `.aws`, credentials, etc.) and dangerous commands (`sudo`, `rm -rf /`, fork bombs, etc.) are blocked.
 
