@@ -12,6 +12,7 @@ type DaemonMode string
 const (
 	DaemonModeNightly    DaemonMode = "nightly"
 	DaemonModeResponsive DaemonMode = "responsive"
+	DaemonModeInstant DaemonMode = "instant"
 )
 
 var providers = []string{"claude", "gemini", "groq", "local"}

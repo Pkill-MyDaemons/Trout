@@ -126,15 +126,19 @@ func (m configModel) updateNav(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		switch m.cursor {
 		case cfgDaemonMode:
 			if fwd {
-				if m.cfg.DaemonMode == DaemonModeNightly {
-					m.cfg.DaemonMode = DaemonModeResponsive
-				} else {
+				if m.cfg.DaemonMode == DaemonModeResponsive {
 					m.cfg.DaemonMode = DaemonModeNightly
+				} else if m.cfg.DaemonMode == DaemonModeNightly {
+					m.cfg.DaemonMode = DaemonModeInstant
+				} else {
+					m.cfg.DaemonMode = DaemonModeResponsive
 				}
 			} else {
 				if m.cfg.DaemonMode == DaemonModeResponsive {
+					m.cfg.DaemonMode = DaemonModeInstant
+				} else if m.cfg.DaemonMode == DaemonModeInstant{
 					m.cfg.DaemonMode = DaemonModeNightly
-				} else {
+				} else{
 					m.cfg.DaemonMode = DaemonModeResponsive
 				}
 			}

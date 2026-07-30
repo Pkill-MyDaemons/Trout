@@ -17,6 +17,24 @@ func main() {
 		return
 	}
 
+	if len(os.Args) > 1 && os.Args[1] == "--run-title" {
+		title, workDir, outPath, err := parseRunTitleArgs(os.Args[2:])
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "%v\n", err)
+			os.Exit(1)
+		}
+		cfg, err := loadConfig()
+		if err != nil {
+			cfg = defaultConfig()
+		}
+		if err := runEphemeralTask(cfg, title, workDir, outPath); err != nil {
+			fmt.Fprintf(os.Stderr, "%v\n", err)
+			os.Exit(1)
+		}
+		fmt.Println("done")
+		return
+	}
+
 	if len(os.Args) > 2 && os.Args[1] == "--run-task" {
 		id := os.Args[2]
 		cfg, err := loadConfig()

@@ -73,8 +73,10 @@ func runDaemonLoop(cfg *Config) {
 
 	if cfg.DaemonMode == DaemonModeResponsive {
 		runResponsive(cfg, sigs)
-	} else {
+	} else if cfg.DaemonMode==DaemonModeNightly{
 		runNightly(cfg, sigs)
+	} else {
+		runInstant(cfg,sigs)
 	}
 	_ = os.Remove(pidFile)
 }
@@ -99,16 +101,59 @@ func runResponsive(cfg *Config, sigs chan os.Signal) {
         }
 
         for _, t := range store.Tasks {
-            if needsAgentResponse(t) {
+            if needsAgentResponse(t) && tryClaimTask(t.ID) {
                 go func(task *Task) {
+                    defer releaseTask(task.ID)
                     processTask(fresh, task, store)
                 }(t)
             }
         }
     }
 
-    tick() 
+    tick()
     ticker := time.NewTicker(5 * time.Minute)
+    defer ticker.Stop()
+
+    for {
+        select {
+        case <-ticker.C:
+            tick()
+        case <-sigs:
+            return
+        }
+    }
+}
+func runInstant(cfg *Config, sigs chan os.Signal) {
+    tick := func() {
+        daemonLog("tick")
+        fresh, err := loadConfig()
+        if err != nil {
+            fmt.Fprintf(os.Stderr, "Error loading config: %v\n", err)
+            return
+        }
+        store, err := loadStore()
+        if err != nil {
+            fmt.Fprintf(os.Stderr, "Error loading store: %v\n", err)
+            return
+        }
+
+        if err := pollGmailInbox(fresh, store); err != nil {
+            daemonLog("gmail poll error: %v", err)
+            fmt.Fprintf(os.Stderr, "gmail poll: %v\n", err)
+        }
+
+        for _, t := range store.Tasks {
+            if needsAgentResponse(t) && tryClaimTask(t.ID) {
+                go func(task *Task) {
+                    defer releaseTask(task.ID)
+                    processTask(fresh, task, store)
+                }(t)
+            }
+        }
+    }
+
+    tick()
+    ticker := time.NewTicker(5 * time.Second)
     defer ticker.Stop()
 
     for {

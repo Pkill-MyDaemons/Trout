@@ -28,16 +28,16 @@ var toolSchemas = []struct {
 	},
 	{
 		Name:        "write_file",
-		Description: "Write content to a file in the workspace. Creates parent directories as needed.",
+		Description: "Write a file, creating parent directories as needed.",
 		Properties: map[string]any{
-			"path":    map[string]any{"type": "string", "description": "Path relative to workspace root. Use projects/<name>/<file> for code."},
-			"content": map[string]any{"type": "string", "description": "Full file content to write."},
+			"path":    map[string]any{"type": "string", "description": "Path relative to workspace root; use projects/<name>/<file> for code."},
+			"content": map[string]any{"type": "string", "description": "Full file content."},
 		},
 		Required: []string{"path", "content"},
 	},
 	{
 		Name:        "run_command",
-		Description: "Run a shell command inside the workspace directory. Timeout 30 s.",
+		Description: "Run a shell command in the workspace. 30s timeout.",
 		Properties: map[string]any{
 			"command": map[string]any{"type": "string", "description": "Shell command to execute."},
 		},
@@ -45,15 +45,15 @@ var toolSchemas = []struct {
 	},
 	{
 		Name:        "list_files",
-		Description: "List files and directories at a path inside the workspace.",
+		Description: "List files and directories at a path.",
 		Properties: map[string]any{
-			"path": map[string]any{"type": "string", "description": "Relative path, empty for workspace root."},
+			"path": map[string]any{"type": "string", "description": "Relative path, empty for root."},
 		},
 		Required: []string{},
 	},
 	{
 		Name:        "create_directory",
-		Description: "Create a directory (and parents) in the workspace.",
+		Description: "Create a directory and parents.",
 		Properties: map[string]any{
 			"path": map[string]any{"type": "string", "description": "Relative path to create."},
 		},
@@ -61,52 +61,52 @@ var toolSchemas = []struct {
 	},
 	{
 		Name:        "web_search",
-		Description: "Search Google and return the top results (title, URL, snippet). Use this to discover relevant URLs, then call fetch_page to read the full content.",
+		Description: "Search Google; returns title/URL/snippet. Pair with fetch_page for full content.",
 		Properties: map[string]any{
-			"query": map[string]any{"type": "string", "description": "Search query, e.g. \"golang http server example\""},
+			"query": map[string]any{"type": "string", "description": "Search query."},
 		},
 		Required: []string{"query"},
 	},
 	{
 		Name:        "fetch_page",
-		Description: "Fetch any URL and return its text content. Optionally filter by a query to return only the most relevant chunks. Results are cached locally for 6 hours.",
+		Description: "Fetch a URL's text content, optionally filtered by query. Cached 6h.",
 		Properties: map[string]any{
-			"url":   map[string]any{"type": "string", "description": "The URL to fetch, e.g. https://en.wikipedia.org/wiki/SQLite"},
-			"query": map[string]any{"type": "string", "description": "Optional: search term to filter the page content to the most relevant sections."},
+			"url":   map[string]any{"type": "string", "description": "URL to fetch."},
+			"query": map[string]any{"type": "string", "description": "Optional term to filter to relevant sections."},
 		},
 		Required: []string{"url"},
 	},
 	{
 		Name:        "list_calendar_events",
-		Description: "List upcoming Google Calendar events. Returns start time, title, location, and description.",
+		Description: "List upcoming Google Calendar events (start, title, location, description).",
 		Properties: map[string]any{
-			"days": map[string]any{"type": "integer", "description": "How many days ahead to look. Defaults to 7."},
+			"days": map[string]any{"type": "integer", "description": "Days ahead to look. Default 7."},
 		},
 		Required: []string{},
 	},
 	{
 		Name:        "create_calendar_event",
-		Description: "Create a new Google Calendar event. Always creates a Google Meet link automatically.",
+		Description: "Create a Google Calendar event; always adds a Meet link.",
 		Properties: map[string]any{
 			"title":       map[string]any{"type": "string", "description": "Event title."},
-			"start":       map[string]any{"type": "string", "description": "Start time in RFC3339 format, e.g. 2026-05-27T14:00:00-07:00"},
-			"end":         map[string]any{"type": "string", "description": "End time in RFC3339 format."},
-			"description": map[string]any{"type": "string", "description": "Optional event description."},
+			"start":       map[string]any{"type": "string", "description": "Start, RFC3339."},
+			"end":         map[string]any{"type": "string", "description": "End, RFC3339."},
+			"description": map[string]any{"type": "string", "description": "Optional description."},
 			"location":    map[string]any{"type": "string", "description": "Optional location."},
-			"attendees":   map[string]any{"type": "string", "description": "Comma-separated email addresses to invite, e.g. \"alice@example.com,bob@example.com\""},
+			"attendees":   map[string]any{"type": "string", "description": "Comma-separated emails to invite."},
 		},
 		Required: []string{"title", "start", "end"},
 	},
 	{
 		Name:        "update_calendar_event",
-		Description: "Edit an existing Google Calendar event. Get the event_id from list_calendar_events. Only fields you provide are changed.",
+		Description: "Edit an existing event by ID (from list_calendar_events). Only provided fields change.",
 		Properties: map[string]any{
 			"event_id":    map[string]any{"type": "string", "description": "Event ID from list_calendar_events."},
-			"title":       map[string]any{"type": "string", "description": "New title (leave empty to keep current)."},
-			"start":       map[string]any{"type": "string", "description": "New start time in RFC3339 format (leave empty to keep current)."},
-			"end":         map[string]any{"type": "string", "description": "New end time in RFC3339 format (leave empty to keep current)."},
-			"description": map[string]any{"type": "string", "description": "New description (leave empty to keep current)."},
-			"location":    map[string]any{"type": "string", "description": "New location (leave empty to keep current)."},
+			"title":       map[string]any{"type": "string", "description": "New title, or empty to keep."},
+			"start":       map[string]any{"type": "string", "description": "New start, RFC3339, or empty to keep."},
+			"end":         map[string]any{"type": "string", "description": "New end, RFC3339, or empty to keep."},
+			"description": map[string]any{"type": "string", "description": "New description, or empty to keep."},
+			"location":    map[string]any{"type": "string", "description": "New location, or empty to keep."},
 			"attendees":   map[string]any{"type": "string", "description": "Comma-separated emails to invite or update."},
 		},
 		Required: []string{"event_id"},
@@ -117,26 +117,13 @@ var toolSchemas = []struct {
 
 func buildAgentSystemPrompt(cfg *Config, task *Task, workspace string) string {
 	var b strings.Builder
-	b.WriteString("You are a task agent. You MUST use tools to act — do not just describe what you would do.\n\n")
+	b.WriteString("You are a task agent. Use tools to act — don't just describe what you'd do. ")
 	fmt.Fprintf(&b, "Workspace: %s\n\n", workspace)
 
-	b.WriteString("**Available tools — call them freely:**\n")
-	b.WriteString("- read_file(path)            — read a file\n")
-	b.WriteString("- write_file(path, content)  — write or create a file\n")
-	b.WriteString("- run_command(command)        — run a shell command (30s timeout)\n")
-	b.WriteString("- list_files(path)            — list directory contents\n")
-	b.WriteString("- create_directory(path)      — create a directory\n")
-	b.WriteString("- web_search(query)           — search Google and get result titles + URLs\n")
-	b.WriteString("- fetch_page(url, query?)     — fetch a URL and read its content; pair with web_search\n")
-	b.WriteString("- list_calendar_events(days?) — list upcoming Google Calendar events (includes event IDs)\n")
-	b.WriteString("- create_calendar_event(title, start, end, attendees?, ...) — creates event + Google Meet link automatically\n")
-	b.WriteString("- update_calendar_event(event_id, ...) — edit an existing event; get event_id from list_calendar_events\n\n")
-	b.WriteString("After any calendar action, always write a response that includes the event title, time, Meet link, and who was invited.\n\n")
-
-	b.WriteString("**Rules:**\n")
-	b.WriteString("- Always call tools to gather information before writing your response. Do not guess.\n")
-	b.WriteString("- For code tasks: create_directory(\"projects/<project-name>\"), then write files inside it.\n")
-	b.WriteString("- Paths outside the workspace are blocked; adjust and continue if denied.\n\n")
+	b.WriteString("Rules: gather info via tools before answering, don't guess. ")
+	b.WriteString("For code tasks, create_directory(\"projects/<name>\") then write files inside it. ")
+	b.WriteString("Paths outside the workspace are blocked — adjust and continue. ")
+	b.WriteString("After a calendar action, report the event title, time, Meet link, and invitees.\n\n")
 
 	b.WriteString("**Current task:**\n")
 	fmt.Fprintf(&b, "Title: %s\n", task.Title)
@@ -144,34 +131,23 @@ func buildAgentSystemPrompt(cfg *Config, task *Task, workspace string) string {
 		fmt.Fprintf(&b, "Description: %s\n", task.Description)
 	}
 	fmt.Fprintf(&b, "Status: %s\n\n", statusLabel(task.Status))
-	b.WriteString("Complete the task using tools, then write a clear summary.\n")
-	b.WriteString("At the end of your final response, list any files you wrote:\n\n")
-	b.WriteString("<!-- task-agent-files\n")
-	b.WriteString("projects/my-project/main.go\n")
-	b.WriteString("-->\n")
+	b.WriteString("Complete the task using tools, then write a clear summary. ")
+	b.WriteString("List any files you wrote at the end, in this exact block:\n")
+	b.WriteString("<!-- task-agent-files\nprojects/my-project/main.go\n-->\n")
 
 	if cfg.EmailMode != EmailModeSummaryOnly {
 		sender := emailSender(task)
 		if sender != "" {
-			// Task came from an email — make the reply requirement explicit.
-			b.WriteString("\n**This task was created from an incoming email.**\n")
-			fmt.Fprintf(&b, "You MUST write a reply to: %s\n", sender)
-			fmt.Fprintf(&b, "Subject line should be: Re: %s\n", task.Title)
-			b.WriteString("Append the reply draft at the end of your response using exactly this format:\n\n")
+			fmt.Fprintf(&b, "\nThis task came from an email — you MUST reply to %s, subject \"Re: %s\". ", sender, task.Title)
+			b.WriteString("Append the draft in this exact block:\n")
 		} else {
-			b.WriteString("\n**Email replies:**\n")
-			b.WriteString("If this task involves an email that needs a reply, append a draft using:\n\n")
+			b.WriteString("\nIf this task needs an email reply, append a draft in this exact block:\n")
 		}
-		b.WriteString("<!-- task-agent-email\n")
-		b.WriteString("to: sender@example.com\n")
-		b.WriteString("subject: Re: Original Subject\n")
-		b.WriteString("---\n")
-		b.WriteString("Reply body here.\n")
-		b.WriteString("-->\n\n")
+		b.WriteString("<!-- task-agent-email\nto: sender@example.com\nsubject: Re: Original Subject\n---\nReply body here.\n-->\n")
 		if cfg.EmailMode == EmailModeAutoSend {
-			b.WriteString("The draft will be sent automatically — write it ready to send.\n")
+			b.WriteString("The draft is sent automatically — write it ready to send.\n")
 		} else {
-			b.WriteString("The user will review the draft before it is sent.\n")
+			b.WriteString("The user reviews the draft before it's sent.\n")
 		}
 	}
 	return b.String()

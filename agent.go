@@ -1,6 +1,9 @@
 package main
 
-import "fmt"
+import (
+	"fmt"
+	"sync"
+)
 
 func needsAgentResponse(t *Task) bool {
 	if t.Status == StatusDone {
@@ -10,6 +13,34 @@ func needsAgentResponse(t *Task) bool {
 		return true
 	}
 	return t.Comments[len(t.Comments)-1].Author == "user"
+}
+
+var (
+	inFlightMu  sync.Mutex
+	inFlightIDs = map[string]bool{}
+)
+
+// tryClaimTask marks a task as being processed and reports whether the
+// caller won the claim. The daemon reloads the store from disk on every
+// tick, so without this a task whose agent run outlives one tick interval
+// (very likely for the 5s "instant" mode) gets picked up again on the next
+// tick before the first run has saved its result — spawning duplicate,
+// concurrent LLM calls for the same task and burning through rate limits.
+func tryClaimTask(id string) bool {
+	inFlightMu.Lock()
+	defer inFlightMu.Unlock()
+	if inFlightIDs[id] {
+		return false
+	}
+	inFlightIDs[id] = true
+	return true
+}
+
+// releaseTask must be called (via defer) once a claimed task's agent run finishes.
+func releaseTask(id string) {
+	inFlightMu.Lock()
+	defer inFlightMu.Unlock()
+	delete(inFlightIDs, id)
 }
 
 func processTask(cfg *Config, task *Task, store *Store) {
