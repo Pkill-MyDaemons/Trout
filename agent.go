@@ -64,6 +64,12 @@ func processTask(cfg *Config, task *Task, store *Store) {
 	}
 	exec.cfg = cfg
 
+	store.setProcessing(task.ID, true)
+	defer store.setProcessing(task.ID, false)
+	exec.OnToolCall = func(description string) {
+		store.setActivity(task.ID, description)
+	}
+
 	raw, files, err := callLLMLoop(cfg, task, exec)
 	if err != nil {
 		store.addComment(task.ID, "agent",
@@ -87,12 +93,13 @@ func processTask(cfg *Config, task *Task, store *Store) {
 	}
 
 	store.addComment(task.ID, "agent", body, files, emailDraft)
+	store.markInProgress(task.ID)
 
-	for _, t := range store.Tasks {
-		if t.ID == task.ID && t.Status == StatusTodo {
-			t.Status = StatusInProgress
-			_ = saveStore(store)
-			break
-		}
+	if cfg.NotifyWebhookURL != "" {
+		go func() {
+			if err := sendWebhookNotification(cfg, task.Title, body); err != nil {
+				daemonLog("webhook notification failed: %v", err)
+			}
+		}()
 	}
 }

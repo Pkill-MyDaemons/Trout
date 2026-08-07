@@ -12,7 +12,7 @@ type DaemonMode string
 const (
 	DaemonModeNightly    DaemonMode = "nightly"
 	DaemonModeResponsive DaemonMode = "responsive"
-	DaemonModeInstant DaemonMode = "instant"
+	DaemonModeInstant    DaemonMode = "instant"
 )
 
 var providers = []string{"claude", "gemini", "groq", "local"}
@@ -34,9 +34,9 @@ type Config struct {
 	LocalURL    string     `json:"local_url"`
 
 	// Email
-	EmailMode    EmailMode `json:"email_mode"`
-	EmailProvider string   `json:"email_provider"` // "smtp" | "gmail"
-	FromAddr     string    `json:"from_addr"`
+	EmailMode     EmailMode `json:"email_mode"`
+	EmailProvider string    `json:"email_provider"` // "smtp" | "gmail"
+	FromAddr      string    `json:"from_addr"`
 
 	// Gmail OAuth
 	GmailClientID     string `json:"gmail_client_id"`
@@ -48,19 +48,24 @@ type Config struct {
 	SMTPPort     int    `json:"smtp_port"`
 	SMTPUser     string `json:"smtp_user"`
 	SMTPPassword string `json:"smtp_password"`
+
+	// Outbound notifications, fired when the agent posts a new comment.
+	NotifyWebhookURL    string `json:"notify_webhook_url"`
+	NotifyWebhookFormat string `json:"notify_webhook_format"` // "slack" | "discord" | "generic"
 }
 
 func defaultConfig() *Config {
 	return &Config{
-		DaemonMode:    DaemonModeNightly,
-		NightlyTime:   "23:00",
-		Provider:      "claude",
-		Model:         defaultModels["claude"],
-		WorkDir:       defaultWorkspace(),
-		LocalURL:      "http://localhost:11434",
-		EmailMode:     EmailModeSummaryOnly,
-		EmailProvider: "smtp",
-		SMTPPort:      587,
+		DaemonMode:          DaemonModeNightly,
+		NightlyTime:         "23:00",
+		Provider:            "claude",
+		Model:               defaultModels["claude"],
+		WorkDir:             defaultWorkspace(),
+		LocalURL:            "http://localhost:11434",
+		EmailMode:           EmailModeSummaryOnly,
+		EmailProvider:       "smtp",
+		SMTPPort:            587,
+		NotifyWebhookFormat: "generic",
 	}
 }
 
@@ -84,5 +89,5 @@ func saveConfig(cfg *Config) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(configFile, data, 0600)
+	return atomicWriteFile(configFile, data, 0600)
 }

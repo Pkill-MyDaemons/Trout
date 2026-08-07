@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -39,6 +40,30 @@ type Executor struct {
 	workspace string
 	written   []string // files written this session
 	cfg       *Config
+
+	// OnToolCall, if set, is invoked with a short human-readable
+	// description right before each tool dispatch — used to surface live
+	// agent activity in the TUI.
+	OnToolCall func(description string)
+
+	// toolCache memoizes cacheableTools calls (name+input -> result) for
+	// the lifetime of this Executor (one agent run). Models frequently
+	// re-issue an identical read-only tool call across rounds — e.g.
+	// searching or reading the same thing twice — burning rounds and
+	// tokens for no new information; serving the cached result instead
+	// both avoids the redundant call and nudges the model to stop asking.
+	toolCache map[string]string
+}
+
+// cacheableTools are idempotent, read-only tools safe to memoize within a
+// single agent run. Mutating tools (write_file, run_command, ...) are never
+// cached — a repeat call there may be intentional (e.g. re-running tests).
+var cacheableTools = map[string]bool{
+	"read_file":            true,
+	"list_files":           true,
+	"web_search":           true,
+	"fetch_page":           true,
+	"list_calendar_events": true,
 }
 
 func newExecutor(workspace string) (*Executor, error) {
@@ -49,7 +74,7 @@ func newExecutor(workspace string) (*Executor, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Executor{workspace: abs}, nil
+	return &Executor{workspace: abs, toolCache: map[string]string{}}, nil
 }
 
 // resolveSafe resolves path inside the workspace and checks safety.
@@ -86,6 +111,33 @@ func (e *Executor) resolveSafe(path string) (string, error) {
 // Security violations are returned as errors; the caller forwards them to the LLM as tool errors.
 func (e *Executor) Dispatch(name string, input map[string]any) (string, error) {
 	str := func(k string) string { v, _ := input[k].(string); return v }
+	if e.OnToolCall != nil {
+		e.OnToolCall(describeToolCall(name, str))
+	}
+
+	if cacheableTools[name] {
+		key := toolCacheKey(name, input)
+		if cached, ok := e.toolCache[key]; ok {
+			return "[identical call already made earlier in this run — result below, unchanged]\n" + cached, nil
+		}
+		result, err := e.dispatchTool(name, input, str)
+		if err == nil {
+			e.toolCache[key] = result
+		}
+		return result, err
+	}
+	return e.dispatchTool(name, input, str)
+}
+
+// toolCacheKey builds a stable cache key from a tool name and its input.
+// encoding/json marshals map keys in sorted order, so equivalent inputs
+// always produce the same key regardless of key ordering.
+func toolCacheKey(name string, input map[string]any) string {
+	data, _ := json.Marshal(input)
+	return name + ":" + string(data)
+}
+
+func (e *Executor) dispatchTool(name string, input map[string]any, str func(string) string) (string, error) {
 	switch name {
 	case "read_file":
 		return e.readFile(str("path"))
@@ -113,6 +165,39 @@ func (e *Executor) Dispatch(name string, input map[string]any) (string, error) {
 		return e.updateCalendarEvent(str("event_id"), str("title"), str("start"), str("end"), str("description"), str("location"), str("attendees"))
 	default:
 		return "", fmt.Errorf("unknown tool: %q", name)
+	}
+}
+
+// describeToolCall renders a short human-readable line for a tool call, for
+// display as the agent's "current activity" in the TUI.
+func describeToolCall(name string, str func(string) string) string {
+	switch name {
+	case "read_file":
+		return "Reading " + str("path")
+	case "write_file":
+		return "Writing " + str("path")
+	case "run_command":
+		return "Running: " + str("command")
+	case "list_files":
+		p := str("path")
+		if p == "" {
+			p = "."
+		}
+		return "Listing " + p
+	case "create_directory":
+		return "Creating directory " + str("path")
+	case "web_search":
+		return "Searching: " + str("query")
+	case "fetch_page":
+		return "Fetching " + str("url")
+	case "list_calendar_events":
+		return "Reading calendar events"
+	case "create_calendar_event":
+		return "Creating calendar event: " + str("title")
+	case "update_calendar_event":
+		return "Updating calendar event: " + str("title")
+	default:
+		return "Running " + name
 	}
 }
 

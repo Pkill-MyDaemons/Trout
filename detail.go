@@ -17,7 +17,7 @@ import (
 type sv int
 
 const (
-	svThread    sv = iota
+	svThread sv = iota
 	svReply
 	svFilePick
 	svFile
@@ -25,16 +25,17 @@ const (
 )
 
 type detailModel struct {
-	store      *Store
-	task       *Task
-	vp         viewport.Model
-	reply      textarea.Model
-	view       sv
-	fileCursor int
-	viewFile   string
-	statusMsg  string
-	width      int
-	height     int
+	store        *Store
+	task         *Task
+	vp           viewport.Model
+	reply        textarea.Model
+	view         sv
+	fileCursor   int
+	viewFile     string
+	statusMsg    string
+	width        int
+	height       int
+	spinnerFrame int
 }
 
 func newDetailModel(store *Store, task *Task, w, h int) detailModel {
@@ -58,7 +59,7 @@ func newDetailModel(store *Store, task *Task, w, h int) detailModel {
 	}
 }
 
-func (m detailModel) Init() tea.Cmd { return nil }
+func (m detailModel) Init() tea.Cmd { return storeTick(m.task.Processing) }
 
 func (m detailModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
@@ -68,6 +69,19 @@ func (m detailModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.vp.Height = msg.Height - 10
 		m.reply.SetWidth(msg.Width - 4)
 		m = m.refreshViewport()
+
+	case storeTickMsg:
+		if fresh, err := loadStore(); err == nil {
+			m.store = fresh
+			if t := m.store.findTask(m.task.ID); t != nil {
+				m.task = t
+			}
+		}
+		m.spinnerFrame++
+		if m.view == svThread {
+			m = m.refreshViewport()
+		}
+		return m, storeTick(m.task.Processing)
 
 	case tea.KeyMsg:
 		switch m.view {
@@ -102,7 +116,7 @@ func (m detailModel) keyThread(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "q", "esc":
 		lm := newListModel(m.store)
 		lm.width, lm.height = m.width, m.height
-		return lm, nil
+		return lm, storeTick(false)
 	case "ctrl+c":
 		return m, tea.Quit
 	case "r":
@@ -122,6 +136,9 @@ func (m detailModel) keyThread(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.statusMsg = "send failed: " + err.Error()
 			} else {
 				m.store.updateEmailDraft(m.task.ID, "sent")
+				if t := m.store.findTask(m.task.ID); t != nil {
+					m.task = t
+				}
 				m.statusMsg = "Email sent to " + draft.To
 				m = m.refreshViewport()
 			}
@@ -153,7 +170,9 @@ func (m detailModel) keyReply(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "ctrl+s":
 		body := strings.TrimSpace(m.reply.Value())
 		if body != "" {
-			m.store.addComment(m.task.ID, "user", body, nil, nil)
+			if t := m.store.addComment(m.task.ID, "user", body, nil, nil); t != nil {
+				m.task = t
+			}
 			m = m.refreshViewport()
 			m.vp.GotoBottom()
 		}
@@ -225,6 +244,9 @@ func (m detailModel) keyEditDraft(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.statusMsg = "send failed: " + err.Error()
 			} else {
 				m.store.updateEmailDraft(m.task.ID, "sent")
+				if t := m.store.findTask(m.task.ID); t != nil {
+					m.task = t
+				}
 				m.statusMsg = "Email sent to " + draft.To
 				m = m.refreshViewport()
 			}
@@ -378,6 +400,16 @@ func (m detailModel) taskHeader() string {
 	h := styleTitle.Render(m.task.Title) + "\n" +
 		statusStyle(m.task.Status).Render(statusLabel(m.task.Status)) +
 		styleMuted.Render("  •  "+m.task.CreatedAt.Format("Jan 2, 2006"))
+	if m.task.Processing {
+		h += "  " + styleActivity.Render(spinnerChar(m.spinnerFrame)+" "+m.task.CurrentActivity)
+	}
+	if len(m.task.Tags) > 0 {
+		var chips []string
+		for _, tag := range m.task.Tags {
+			chips = append(chips, styleTag.Render(tag))
+		}
+		h += "  " + strings.Join(chips, " ")
+	}
 	if m.task.Description != "" {
 		h += "\n" + lipgloss.NewStyle().Foreground(colorSubtext).Render(m.task.Description)
 	}

@@ -59,7 +59,22 @@ var (
 	styleHelp = lipgloss.NewStyle().
 			Foreground(colorMuted).
 			MarginTop(1)
+
+	styleActivity = lipgloss.NewStyle().
+			Foreground(colorInProg).
+			Italic(true)
+
+	styleTag = lipgloss.NewStyle().
+			Foreground(colorPrimary).
+			Background(colorBorder).
+			Padding(0, 1)
 )
+
+var spinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
+
+func spinnerChar(frame int) string {
+	return spinnerFrames[frame%len(spinnerFrames)]
+}
 
 func statusStyle(s Status) lipgloss.Style {
 	switch s {

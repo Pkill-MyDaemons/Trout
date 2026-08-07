@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math/rand"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -62,9 +64,27 @@ func buildSystemPrompt(task *Task) string {
 	return b.String()
 }
 
+// thinkBlockRe matches <think>...</think> reasoning blocks that some models
+// (local reasoning models via Ollama/LM Studio, Groq's reasoning models,
+// etc.) prepend to their answer.
+var thinkBlockRe = regexp.MustCompile(`(?is)<think>.*?</think>`)
+
+// stripThinkBlocks removes <think>...</think> blocks so raw chain-of-thought
+// never ends up in a task's comment thread. A trailing, unterminated
+// <think> (generation cut off mid-thought) is stripped to the end of the
+// string rather than left dangling.
+func stripThinkBlocks(s string) string {
+	s = thinkBlockRe.ReplaceAllString(s, "")
+	if idx := strings.Index(strings.ToLower(s), "<think>"); idx != -1 {
+		s = s[:idx]
+	}
+	return strings.TrimSpace(s)
+}
+
 // parseAgentResponse splits the LLM reply into the visible body and any file paths
 // listed in the <!-- task-agent-files ... --> trailer block.
 func parseAgentResponse(raw string) (body string, files []string) {
+	raw = stripThinkBlocks(raw)
 	const start = "<!-- task-agent-files"
 	const end = "-->"
 	idx := strings.LastIndex(raw, start)
@@ -234,26 +254,61 @@ func newHTTPReq(method, url string, body []byte) (*http.Request, error) {
 	return http.NewRequest(method, url, bytes.NewReader(body))
 }
 
+const maxHTTPRetries = 3
+
+// httpDo executes req, retrying transient failures (network errors, 429,
+// and 5xx) with exponential backoff and jitter. Non-transient errors (4xx
+// other than 429) return immediately without retrying.
 func httpDo(req *http.Request) ([]byte, error) {
 	client := &http.Client{Timeout: 120 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	data, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-	if resp.StatusCode >= 400 {
-		// try to surface the error message from the body
-		var e struct {
-			Error struct{ Message string } `json:"error"`
+
+	var lastErr error
+	for attempt := 0; attempt < maxHTTPRetries; attempt++ {
+		if attempt > 0 {
+			if req.GetBody != nil {
+				body, err := req.GetBody()
+				if err != nil {
+					return nil, err
+				}
+				req.Body = body
+			}
+			backoff := time.Duration(1<<uint(attempt-1)) * time.Second
+			time.Sleep(backoff + time.Duration(rand.Int63n(int64(backoff)+1)))
 		}
-		if json.Unmarshal(data, &e) == nil && e.Error.Message != "" {
-			return nil, fmt.Errorf("HTTP %d: %s", resp.StatusCode, e.Error.Message)
+
+		resp, err := client.Do(req)
+		if err != nil {
+			lastErr = err
+			continue
 		}
-		return nil, fmt.Errorf("HTTP %d: %s", resp.StatusCode, data)
+
+		data, err := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if err != nil {
+			lastErr = err
+			continue
+		}
+
+		if resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500 {
+			lastErr = httpErrFromBody(resp.StatusCode, data)
+			continue
+		}
+		if resp.StatusCode >= 400 {
+			return nil, httpErrFromBody(resp.StatusCode, data)
+		}
+		return data, nil
 	}
-	return data, nil
+	return nil, fmt.Errorf("after %d attempts: %w", maxHTTPRetries, lastErr)
+}
+
+// httpErrFromBody tries to surface a provider's JSON error message, falling
+// back to the raw response body.
+func httpErrFromBody(status int, data []byte) error {
+	var e struct {
+		Error struct{ Message string } `json:"error"`
+	}
+	if json.Unmarshal(data, &e) == nil && e.Error.Message != "" {
+		return fmt.Errorf("HTTP %d: %s", status, e.Error.Message)
+	}
+	return fmt.Errorf("HTTP %d: %s", status, data)
 }

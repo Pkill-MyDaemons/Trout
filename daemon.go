@@ -12,6 +12,32 @@ import (
 )
 
 var pidFile = dataPath("daemon.pid")
+var daemonLockFile = dataPath("daemon.lock")
+
+// acquireDaemonLock ensures only one daemon process can ever be actively
+// processing tasks at a time, using an OS-level exclusive lock rather than
+// relying solely on the PID file (which is racy: two "start" presses in
+// quick succession, or a stale PID getting reused by an unrelated process,
+// can both fool isDaemonRunning). Without this, two daemon processes can
+// end up claiming and processing the same task independently — each
+// running its own full multi-round tool-use loop against the LLM provider,
+// silently doubling API/token usage until the account runs out of budget.
+// The lock is held for the lifetime of the process (never explicitly
+// unlocked); the OS releases it on exit.
+var daemonLockHandle *os.File
+
+func acquireDaemonLock() error {
+	f, err := os.OpenFile(daemonLockFile, os.O_CREATE|os.O_RDWR, 0600)
+	if err != nil {
+		return err
+	}
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		f.Close()
+		return fmt.Errorf("another daemon instance already holds the lock")
+	}
+	daemonLockHandle = f
+	return nil
+}
 
 // isDaemonRunning checks the PID file and whether that process is alive.
 func isDaemonRunning() (bool, int) {
@@ -68,102 +94,108 @@ func stopDaemon() error {
 
 // runDaemonLoop is the main daemon entry point, called when --daemon flag is set.
 func runDaemonLoop(cfg *Config) {
+	if err := acquireDaemonLock(); err != nil {
+		daemonLog("startup aborted: %v", err)
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+
 	sigs := make(chan os.Signal, 1)
 	signal.Notify(sigs, syscall.SIGTERM, syscall.SIGINT)
 
 	if cfg.DaemonMode == DaemonModeResponsive {
 		runResponsive(cfg, sigs)
-	} else if cfg.DaemonMode==DaemonModeNightly{
+	} else if cfg.DaemonMode == DaemonModeNightly {
 		runNightly(cfg, sigs)
 	} else {
-		runInstant(cfg,sigs)
+		runInstant(cfg, sigs)
 	}
 	_ = os.Remove(pidFile)
 }
 
 func runResponsive(cfg *Config, sigs chan os.Signal) {
-    tick := func() {
-        daemonLog("tick")
-        fresh, err := loadConfig()
-        if err != nil {
-            fmt.Fprintf(os.Stderr, "Error loading config: %v\n", err)
-            return
-        }
-        store, err := loadStore()
-        if err != nil {
-            fmt.Fprintf(os.Stderr, "Error loading store: %v\n", err)
-            return
-        }
+	tick := func() {
+		daemonLog("tick")
+		fresh, err := loadConfig()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error loading config: %v\n", err)
+			return
+		}
+		store, err := loadStore()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error loading store: %v\n", err)
+			return
+		}
 
-        if err := pollGmailInbox(fresh, store); err != nil {
-            daemonLog("gmail poll error: %v", err)
-            fmt.Fprintf(os.Stderr, "gmail poll: %v\n", err)
-        }
+		if err := pollGmailInbox(fresh, store); err != nil {
+			daemonLog("gmail poll error: %v", err)
+			fmt.Fprintf(os.Stderr, "gmail poll: %v\n", err)
+		}
 
-        for _, t := range store.Tasks {
-            if needsAgentResponse(t) && tryClaimTask(t.ID) {
-                go func(task *Task) {
-                    defer releaseTask(task.ID)
-                    processTask(fresh, task, store)
-                }(t)
-            }
-        }
-    }
+		for _, t := range store.Tasks {
+			if needsAgentResponse(t) && tryClaimTask(t.ID) {
+				go func(task *Task) {
+					defer releaseTask(task.ID)
+					processTask(fresh, task, store)
+				}(t)
+			}
+		}
+	}
 
-    tick()
-    ticker := time.NewTicker(5 * time.Minute)
-    defer ticker.Stop()
+	tick()
+	ticker := time.NewTicker(5 * time.Minute)
+	defer ticker.Stop()
 
-    for {
-        select {
-        case <-ticker.C:
-            tick()
-        case <-sigs:
-            return
-        }
-    }
+	for {
+		select {
+		case <-ticker.C:
+			tick()
+		case <-sigs:
+			return
+		}
+	}
 }
 func runInstant(cfg *Config, sigs chan os.Signal) {
-    tick := func() {
-        daemonLog("tick")
-        fresh, err := loadConfig()
-        if err != nil {
-            fmt.Fprintf(os.Stderr, "Error loading config: %v\n", err)
-            return
-        }
-        store, err := loadStore()
-        if err != nil {
-            fmt.Fprintf(os.Stderr, "Error loading store: %v\n", err)
-            return
-        }
+	tick := func() {
+		daemonLog("tick")
+		fresh, err := loadConfig()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error loading config: %v\n", err)
+			return
+		}
+		store, err := loadStore()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error loading store: %v\n", err)
+			return
+		}
 
-        if err := pollGmailInbox(fresh, store); err != nil {
-            daemonLog("gmail poll error: %v", err)
-            fmt.Fprintf(os.Stderr, "gmail poll: %v\n", err)
-        }
+		if err := pollGmailInbox(fresh, store); err != nil {
+			daemonLog("gmail poll error: %v", err)
+			fmt.Fprintf(os.Stderr, "gmail poll: %v\n", err)
+		}
 
-        for _, t := range store.Tasks {
-            if needsAgentResponse(t) && tryClaimTask(t.ID) {
-                go func(task *Task) {
-                    defer releaseTask(task.ID)
-                    processTask(fresh, task, store)
-                }(t)
-            }
-        }
-    }
+		for _, t := range store.Tasks {
+			if needsAgentResponse(t) && tryClaimTask(t.ID) {
+				go func(task *Task) {
+					defer releaseTask(task.ID)
+					processTask(fresh, task, store)
+				}(t)
+			}
+		}
+	}
 
-    tick()
-    ticker := time.NewTicker(5 * time.Second)
-    defer ticker.Stop()
+	tick()
+	ticker := time.NewTicker(5 * time.Second)
+	defer ticker.Stop()
 
-    for {
-        select {
-        case <-ticker.C:
-            tick()
-        case <-sigs:
-            return
-        }
-    }
+	for {
+		select {
+		case <-ticker.C:
+			tick()
+		case <-sigs:
+			return
+		}
+	}
 }
 
 func runNightly(cfg *Config, sigs chan os.Signal) {

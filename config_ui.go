@@ -34,6 +34,9 @@ const (
 	cfgSMTPPort
 	cfgSMTPUser
 	cfgSMTPPass
+	// notifications
+	cfgNotifyWebhookURL
+	cfgNotifyWebhookFormat
 	// daemon button
 	cfgDaemonBtn
 	cfgFieldCount
@@ -104,7 +107,7 @@ func (m configModel) updateNav(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "esc", "q":
 		lm := newListModel(m.store)
 		lm.width, lm.height = m.width, m.height
-		return lm, nil
+		return lm, storeTick(false)
 	case "ctrl+c":
 		return m, tea.Quit
 	case "up", "k":
@@ -136,9 +139,9 @@ func (m configModel) updateNav(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			} else {
 				if m.cfg.DaemonMode == DaemonModeResponsive {
 					m.cfg.DaemonMode = DaemonModeInstant
-				} else if m.cfg.DaemonMode == DaemonModeInstant{
+				} else if m.cfg.DaemonMode == DaemonModeInstant {
 					m.cfg.DaemonMode = DaemonModeNightly
-				} else{
+				} else {
 					m.cfg.DaemonMode = DaemonModeResponsive
 				}
 			}
@@ -156,6 +159,9 @@ func (m configModel) updateNav(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m = m.skipHidden(1)
 		case cfgGmailPollEnabled:
 			m.cfg.GmailPollEnabled = !m.cfg.GmailPollEnabled
+			_ = saveConfig(m.cfg)
+		case cfgNotifyWebhookFormat:
+			m.cfg.NotifyWebhookFormat = cycleWebhookFormat(m.cfg.NotifyWebhookFormat, fwd)
 			_ = saveConfig(m.cfg)
 		}
 	}
@@ -210,6 +216,9 @@ func (m configModel) activate() (tea.Model, tea.Cmd) {
 		_ = saveConfig(m.cfg)
 	case cfgGmailPollEnabled:
 		m.cfg.GmailPollEnabled = !m.cfg.GmailPollEnabled
+		_ = saveConfig(m.cfg)
+	case cfgNotifyWebhookFormat:
+		m.cfg.NotifyWebhookFormat = cycleWebhookFormat(m.cfg.NotifyWebhookFormat, true)
 		_ = saveConfig(m.cfg)
 	case cfgGmailAuthBtn:
 		if m.cfg.GmailClientID == "" || m.cfg.GmailClientSecret == "" {
@@ -293,6 +302,8 @@ func (m *configModel) textFieldValue() string {
 		return m.cfg.SMTPUser
 	case cfgSMTPPass:
 		return m.cfg.SMTPPassword
+	case cfgNotifyWebhookURL:
+		return m.cfg.NotifyWebhookURL
 	}
 	return ""
 }
@@ -325,6 +336,8 @@ func (m *configModel) applyEdit(val string) {
 		m.cfg.SMTPUser = val
 	case cfgSMTPPass:
 		m.cfg.SMTPPassword = val
+	case cfgNotifyWebhookURL:
+		m.cfg.NotifyWebhookURL = val
 	}
 }
 
@@ -453,6 +466,11 @@ func (m configModel) buildRows() []string {
 			lines = append(lines, m.renderRow(r.field, r.label, r.value, lbl))
 		}
 	}
+
+	// Notifications section
+	lines = append(lines, sectionHdr("Notifications"))
+	lines = append(lines, m.renderRow(cfgNotifyWebhookURL, "Webhook URL", tv(m.cfg.NotifyWebhookURL), lbl))
+	lines = append(lines, m.renderRow(cfgNotifyWebhookFormat, "Webhook format", tog(m.cfg.NotifyWebhookFormat), lbl))
 
 	// Daemon button
 	lines = append(lines, "")
